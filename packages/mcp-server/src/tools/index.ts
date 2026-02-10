@@ -7,12 +7,20 @@
 import { getWalletAddressesTool } from "./get-wallet-addresses.js";
 import { signTransactionTool } from "./sign-transaction.js";
 import { signMessageTool } from "./sign-message.js";
+import { transferTokensTool } from "./transfer-tokens.js";
+import { buyTokenTool } from "./buy-token.js";
 import type { ToolHandler } from "./types.js";
 
 /**
  * Array of all available tools
  */
-export const tools: ToolHandler[] = [getWalletAddressesTool, signTransactionTool, signMessageTool];
+export const tools: ToolHandler[] = [
+  getWalletAddressesTool,
+  signTransactionTool,
+  signMessageTool,
+  transferTokensTool,
+  buyTokenTool,
+];
 
 /**
  * Get a tool by name

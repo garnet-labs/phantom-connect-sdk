@@ -6,6 +6,7 @@ import { isEthereumChain } from "@phantom/utils";
 import { stringToBase64url } from "@phantom/base64url";
 import type { NetworkId } from "@phantom/client";
 import type { ToolHandler, ToolContext } from "./types.js";
+import { normalizeNetworkId } from "../utils/network.js";
 
 export const signMessageTool: ToolHandler = {
   name: "sign_message",
@@ -62,7 +63,7 @@ export const signMessageTool: ToolHandler = {
     }
 
     const message = params.message;
-    const networkId = params.networkId as NetworkId;
+    const networkId = normalizeNetworkId(params.networkId) as NetworkId;
     const derivationIndex = typeof params.derivationIndex === "number" ? params.derivationIndex : undefined;
 
     logger.info(`Signing message for wallet ${walletId} on network ${networkId}`);

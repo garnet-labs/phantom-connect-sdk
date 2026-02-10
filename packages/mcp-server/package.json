@@ -44,7 +44,10 @@
     "@phantom/crypto": "workspace:^",
     "@phantom/server-sdk": "workspace:^",
     "@phantom/utils": "workspace:^",
+    "@solana/spl-token": "^0.4.14",
+    "@solana/web3.js": "^1.95.5",
     "axios": "^1.6.7",
+    "bs58": "^6.0.0",
     "open": "^10.0.3",
     "openid-client": "^5.6.5"
   },

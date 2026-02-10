@@ -13,9 +13,11 @@ An MCP (Model Context Protocol) server that provides LLMs like Claude with direc
 - **SSO Authentication**: Seamless integration with Phantom's embedded wallet SSO flow (Google/Apple login)
 - **Session Persistence**: Automatic session management with stamper keys stored in `~/.phantom-mcp/session.json`
 - **Multi-Chain Support**: Works with Solana, Ethereum, Bitcoin, and Sui networks
-- **Three MCP Tools**:
+- **Five MCP Tools**:
   - `get_wallet_addresses` - Get blockchain addresses for the authenticated embedded wallet
   - `sign_transaction` - Sign transactions across supported chains
+  - `transfer_tokens` - Transfer SOL or SPL tokens on Solana (executes immediately)
+  - `buy_token` - Fetch a Solana swap quote from the Phantom quotes API (can execute immediately)
   - `sign_message` - Sign UTF-8 messages with automatic chain-specific routing
 
 ## Installation
@@ -179,6 +181,10 @@ This opens an interactive web UI where you can test tool calls without Claude De
 
 ## Available Tools
 
+> **Execution Warning**
+> `transfer_tokens` always submits a transaction immediately, and `buy_token` can submit immediately when `execute: true`.
+> If you need finer control (simulation, review, multi-sig, or custom signing), build your own transaction and use `sign_transaction` instead.
+
 ### 1. get_wallet_addresses
 
 Gets all blockchain addresses for the authenticated embedded wallet (Solana, Ethereum, Bitcoin, Sui).
@@ -252,7 +258,134 @@ Signs a transaction using the authenticated embedded wallet. Supports Solana, Et
 }
 ```
 
-### 3. sign_message
+### 3. transfer_tokens
+
+Transfers SOL or SPL tokens on Solana by building, signing, and sending the transaction.
+
+**Parameters:**
+
+- `walletId` (optional, string): The wallet ID to use for transfer (defaults to authenticated wallet)
+- `networkId` (required, string): Solana network identifier (e.g., "solana:mainnet", "solana:devnet")
+- `to` (required, string): Recipient Solana address
+- `amount` (required, string): Transfer amount as a string (e.g., "0.5" or "1000000")
+- `amountUnit` (optional, string): Amount unit (`ui` for SOL/token units, `base` for lamports/base units; default: `ui`)
+- `tokenMint` (optional, string): SPL token mint address (omit for SOL)
+- `decimals` (optional, number): Token decimals (optional for SPL tokens; fetched from chain if omitted)
+- `derivationIndex` (optional, number): Derivation index for the account (default: 0)
+- `rpcUrl` (optional, string): Solana RPC URL (defaults based on networkId)
+- `createAssociatedTokenAccount` (optional, boolean): Create destination ATA if missing (default: true)
+
+**Example (SOL):**
+
+```json
+{
+  "networkId": "solana:mainnet",
+  "to": "H8FpYTgx4Uy9aF9Nk9fCTqKKFLYQ9KfC6UJhMkMDzCBh",
+  "amount": "0.1",
+  "amountUnit": "ui"
+}
+```
+
+**Example (SPL Token):**
+
+```json
+{
+  "networkId": "solana:devnet",
+  "to": "H8FpYTgx4Uy9aF9Nk9fCTqKKFLYQ9KfC6UJhMkMDzCBh",
+  "tokenMint": "So11111111111111111111111111111111111111112",
+  "amount": "1.5",
+  "amountUnit": "ui"
+}
+```
+
+**Response:**
+
+```json
+{
+  "walletId": "05307b6d-2d5a-43d6-8d11-08db650a169b",
+  "networkId": "solana:mainnet",
+  "from": "H8FpYTgx4Uy9aF9Nk9fCTqKKFLYQ9KfC6UJhMkMDzCBh",
+  "to": "H8FpYTgx4Uy9aF9Nk9fCTqKKFLYQ9KfC6UJhMkMDzCBh",
+  "tokenMint": null,
+  "signature": "5oVZJ8b7k2rGm3rP3Gm5J3tFjR6eUpCkG6TGNKxgqQ7s...",
+  "rawTransaction": "base64url-encoded-signed-transaction"
+}
+```
+
+### 4. buy_token
+
+Fetches a Solana swap quote from the Phantom quotes API. Optionally signs and sends the first quote transaction.
+
+**Parameters:**
+
+- `walletId` (optional, string): The wallet ID to use for the taker address (defaults to authenticated wallet)
+- `networkId` (optional, string): Solana network identifier (default: `solana:mainnet`)
+- `buyTokenMint` (optional, string): Mint address of the token to buy (omit if buying native SOL)
+- `buyTokenIsNative` (optional, boolean): Set true to buy native SOL (default: false)
+- `sellTokenMint` (optional, string): Mint address of the token to sell (omit if selling native SOL)
+- `sellTokenIsNative` (optional, boolean): Set true to sell native SOL (default: true if `sellTokenMint` not provided)
+- `amount` (required, string): Sell amount (e.g., "0.5" or "1000000")
+- `amountUnit` (optional, string): Amount unit (`ui` for token units, `base` for atomic units; default: `base`)
+- `buyTokenDecimals` (optional, number): Buy token decimals (used when `amountUnit` is `ui` and `exactOut` is true)
+- `sellTokenDecimals` (optional, number): Sell token decimals (used when `amountUnit` is `ui`)
+- `slippageTolerance` (optional, number): Slippage tolerance in percent (0-100)
+- `exactOut` (optional, boolean): Treat amount as buy amount instead of sell amount
+- `autoSlippage` (optional, boolean): Enable auto slippage calculation
+- `base64EncodedTx` (optional, boolean): Request base64-encoded transaction data in the quote response
+- `execute` (optional, boolean): If true, sign and send the first quote transaction after fetching
+- `taker` (optional, string): Taker address (defaults to wallet's Solana address)
+- `rpcUrl` (optional, string): Solana RPC URL (for mint decimals lookup when `amountUnit` is `ui`)
+- `quoteApiUrl` (optional, string): Quotes API URL override
+- `derivationIndex` (optional, number): Derivation index for the taker address (default: 0)
+
+**Example:**
+
+```json
+{
+  "networkId": "solana:mainnet",
+  "sellTokenIsNative": true,
+  "buyTokenMint": "So11111111111111111111111111111111111111112",
+  "amount": "0.5",
+  "amountUnit": "ui",
+  "slippageTolerance": 1,
+  "execute": true
+}
+```
+
+**Response:**
+
+```json
+{
+  "quoteRequest": {
+    "taker": {
+      "chainId": "solana:101",
+      "resourceType": "address",
+      "address": "H8FpYTgx4Uy9aF9Nk9fCTqKKFLYQ9KfC6UJhMkMDzCBh"
+    },
+    "buyToken": {
+      "chainId": "solana:101",
+      "resourceType": "address",
+      "address": "So11111111111111111111111111111111111111112"
+    },
+    "sellToken": {
+      "chainId": "solana:101",
+      "resourceType": "nativeToken",
+      "slip44": "501"
+    },
+    "sellAmount": "500000000"
+  },
+  "quoteResponse": {
+    "type": "quotes",
+    "quotes": []
+  },
+  "execution": {
+    "signature": "5oVZJ8b7k2rGm3rP3Gm5J3tFjR6eUpCkG6TGNKxgqQ7s...",
+    "rawTransaction": "base64url-encoded-signed-transaction"
+  }
+}
+```
+
+### 5. sign_message
 
 Signs a UTF-8 message using the authenticated embedded wallet. Automatically routes to the correct signing method based on the network (Ethereum vs other chains).
 

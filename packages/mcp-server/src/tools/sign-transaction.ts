@@ -3,7 +3,10 @@
  */
 
 import type { NetworkId } from "@phantom/client";
+import { isSolanaChain } from "@phantom/utils";
 import type { ToolHandler, ToolContext } from "./types.js";
+import { normalizeNetworkId } from "../utils/network.js";
+import { getSolanaAddress } from "../utils/solana.js";
 
 export const signTransactionTool: ToolHandler = {
   name: "sign_transaction",
@@ -70,9 +73,13 @@ export const signTransactionTool: ToolHandler = {
     }
 
     const transaction = params.transaction;
-    const networkId = params.networkId as NetworkId;
+    const networkId = normalizeNetworkId(params.networkId) as NetworkId;
     const derivationIndex = typeof params.derivationIndex === "number" ? params.derivationIndex : undefined;
-    const account = typeof params.account === "string" ? params.account : undefined;
+
+    let account = typeof params.account === "string" ? params.account : undefined;
+    if (!account && isSolanaChain(networkId)) {
+      account = await getSolanaAddress(context, walletId, derivationIndex);
+    }
 
     logger.info(`Signing transaction for wallet ${walletId} on network ${networkId}`);
 
