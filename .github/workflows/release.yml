@@ -62,6 +62,6 @@ jobs:
           # This expects you to have a script called release which does a build for your packages and calls changeset publish
           version: yarn changeset version
           publish: yarn release
-          commitMode: github-api
+          commitMode: git-cli
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
