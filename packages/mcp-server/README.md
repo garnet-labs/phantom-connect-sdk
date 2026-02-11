@@ -53,7 +53,11 @@ phantom-mcp
 1. **Visit the Phantom Portal**: Go to [phantom.com/portal](https://phantom.com/portal)
 2. **Sign in**: Use your Gmail or Apple account to sign in
 3. **Create an App**: Click "Create App" and fill in the required details
-4. **Get Your App ID**: Navigate to the "Phantom Connect" tab to find your App ID
+4. **Configure Redirect URL**:
+   - Navigate to Dashboard → View App → Redirect URLs
+   - Add `http://localhost:8080/callback` as a redirect URL
+   - This allows the OAuth callback to work correctly
+5. **Get Your App ID**: Navigate to the "Phantom Connect" tab to find your App ID
    - Your app is automatically approved for development use
    - Copy the App ID for use in the MCP server configuration
 
@@ -178,6 +182,36 @@ npx @modelcontextprotocol/inspector npx -y @phantom/mcp-server
 ```
 
 This opens an interactive web UI where you can test tool calls without Claude Desktop.
+
+## Network IDs Reference
+
+Network identifiers follow the CAIP-2/CAIP-10 format. Here are the supported networks:
+
+### Solana
+
+- Mainnet: `solana:mainnet` (or `solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp`)
+- Devnet: `solana:devnet` (or `solana:GH7ome3EiwEr7tu9JuTh2dpYWBJK3z69`)
+- Testnet: `solana:testnet` (or `solana:4uhcVJyU9pJkvQyS88uRDiswHXSCkY3z`)
+
+### Ethereum / EVM Chains
+
+- Ethereum Mainnet: `eip155:1`
+- Ethereum Sepolia: `eip155:11155111`
+- Polygon Mainnet: `eip155:137`
+- Polygon Amoy: `eip155:80002`
+- Base Mainnet: `eip155:8453`
+- Base Sepolia: `eip155:84532`
+- Arbitrum One: `eip155:42161`
+- Arbitrum Sepolia: `eip155:421614`
+
+### Bitcoin
+
+- Mainnet: `bip122:000000000019d6689c085ae165831e93`
+
+### Sui
+
+- Mainnet: `sui:mainnet`
+- Testnet: `sui:testnet`
 
 ## Available Tools
 

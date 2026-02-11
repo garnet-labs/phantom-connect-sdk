@@ -6,6 +6,55 @@ Direct integration with Phantom wallet for OpenClaw agents. This plugin wraps th
 
 The Phantom OpenClaw Plugin provides native integration with Phantom wallet functionality. Instead of being a generic MCP bridge, it directly integrates the Phantom MCP Server tools as OpenClaw tools, providing a seamless experience for AI agents.
 
+## Quick Start
+
+Get up and running in under 5 minutes:
+
+### Installation Checklist
+
+- [ ] **Step 1:** Get your App ID from [phantom.com/portal](https://phantom.com/portal)
+  - Sign in with Gmail or Apple
+  - Click "Create App"
+  - Go to Dashboard → View App → Redirect URLs
+  - Add `http://localhost:8080/callback` as a redirect URL
+  - Navigate to "Phantom Connect" tab
+  - Copy your App ID
+
+- [ ] **Step 2:** Install the plugin
+
+  ```bash
+  openclaw plugins install @phantom/openclaw-plugin
+  ```
+
+- [ ] **Step 3:** Configure in `~/.openclaw/openclaw.json`
+
+  ```json
+  {
+    "plugins": {
+      "enabled": true,
+      "entries": {
+        "phantom-openclaw-plugin": {
+          "enabled": true,
+          "config": {
+            "PHANTOM_APP_ID": "your_app_id_from_portal"
+          }
+        }
+      }
+    }
+  }
+  ```
+
+- [ ] **Step 4:** Restart OpenClaw
+
+- [ ] **Step 5:** Test with your agent
+  ```text
+  Ask: "What are my Phantom wallet addresses?"
+  ```
+
+**⚠️ Important:** Use the same email address for both the Phantom Portal and OpenClaw authentication!
+
+See [Prerequisites](#prerequisites) below for detailed setup instructions.
+
 ## Features
 
 - **Direct Integration**: Built on top of `@phantom/mcp-server` for reliable wallet operations
@@ -20,7 +69,11 @@ Before using this plugin, you **must** obtain an App ID from the Phantom Portal:
 1. **Visit the Phantom Portal**: Go to [phantom.com/portal](https://phantom.com/portal)
 2. **Sign in**: Use your Gmail or Apple account to sign in
 3. **Create an App**: Click "Create App" and fill in the required details
-4. **Get Your App ID**: Navigate to the "Phantom Connect" tab to find your App ID
+4. **Configure Redirect URL**:
+   - Navigate to Dashboard → View App → Redirect URLs
+   - Add `http://localhost:8080/callback` as a redirect URL
+   - This allows the OAuth callback to work correctly
+5. **Get Your App ID**: Navigate to the "Phantom Connect" tab to find your App ID
    - Your app is automatically approved for development use
    - Copy the App ID for the configuration below
 
@@ -88,6 +141,7 @@ Sign an arbitrary message with the Phantom wallet.
 **Parameters:**
 
 - `message` (string, required): The message to sign
+- `networkId` (string, required): Network identifier (e.g., "solana:mainnet", "eip155:1")
 - `derivationIndex` (number, optional): Derivation index for the wallet (default: 0)
 
 **Example:**
@@ -95,6 +149,7 @@ Sign an arbitrary message with the Phantom wallet.
 ```json
 {
   "message": "Hello, Phantom!",
+  "networkId": "solana:mainnet",
   "derivationIndex": 0
 }
 ```
@@ -105,17 +160,18 @@ Sign a blockchain transaction.
 
 **Parameters:**
 
-- `transaction` (string, required): Base64-encoded transaction data
+- `transaction` (string, required): The transaction to sign (format depends on chain: base64url for Solana, RLP-encoded hex for Ethereum)
+- `networkId` (string, required): Network identifier (e.g., "solana:mainnet", "eip155:1" for Ethereum mainnet)
 - `derivationIndex` (number, optional): Derivation index for the wallet (default: 0)
-- `chain` (string, optional): Blockchain chain identifier
+- `account` (string, optional): Specific account address to use for simulation/signing
 
 **Example:**
 
 ```json
 {
-  "transaction": "base64-encoded-transaction-data",
-  "derivationIndex": 0,
-  "chain": "solana"
+  "transaction": "base64url-encoded-transaction-data",
+  "networkId": "solana:mainnet",
+  "derivationIndex": 0
 }
 ```
 
@@ -191,6 +247,36 @@ Fetch a Solana swap quote from Phantom's quotes API. Optionally execute the swap
 ```
 
 **⚠️ Warning:** When `execute: true`, this tool submits transactions immediately and irreversibly.
+
+## Network IDs Reference
+
+Network identifiers follow the CAIP-2/CAIP-10 format. Here are the supported networks:
+
+### Solana
+
+- Mainnet: `solana:mainnet`
+- Devnet: `solana:devnet`
+- Testnet: `solana:testnet`
+
+### Ethereum / EVM Chains
+
+- Ethereum Mainnet: `eip155:1`
+- Ethereum Sepolia: `eip155:11155111`
+- Polygon Mainnet: `eip155:137`
+- Polygon Amoy: `eip155:80002`
+- Base Mainnet: `eip155:8453`
+- Base Sepolia: `eip155:84532`
+- Arbitrum One: `eip155:42161`
+- Arbitrum Sepolia: `eip155:421614`
+
+### Bitcoin
+
+- Mainnet: `bip122:000000000019d6689c085ae165831e93`
+
+### Sui
+
+- Mainnet: `sui:mainnet`
+- Testnet: `sui:testnet`
 
 ## Authentication
 
