@@ -2,8 +2,16 @@
 
 import { PhantomMCPServer } from "./server.js";
 
-// Export SessionManager for testing
+// Export SessionManager and types for external usage
 export { SessionManager } from "./session/manager.js";
+export type { SessionData } from "./session/types.js";
+
+// Export tools for external usage
+export { tools } from "./tools/index.js";
+export type { ToolHandler, ToolContext } from "./tools/types.js";
+
+// Re-export PhantomClient type for convenience
+export type { PhantomClient } from "@phantom/client";
 
 async function main() {
   const server = new PhantomMCPServer();

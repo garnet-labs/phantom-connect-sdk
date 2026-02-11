@@ -1,6 +1,6 @@
 {
   "name": "@phantom/mcp-server",
-  "version": "0.1.1",
+  "version": "0.1.0",
   "description": "MCP Server for Phantom Wallet",
   "repository": {
     "type": "git",
@@ -10,7 +10,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "phantom-mcp": "./bin/phantom-mcp"
+    "phantom-mcp": "./dist/index.js"
   },
   "scripts": {
     "?pack-release": "When https://github.com/changesets/changesets/issues/432 has a solution we can remove this trick",
@@ -52,8 +52,7 @@
     "openid-client": "^5.6.5"
   },
   "files": [
-    "dist",
-    "bin"
+    "dist"
   ],
   "publishConfig": {
     "directory": "_release/package"
