@@ -729,6 +729,7 @@ const sdk = new BrowserSDK({
 sdk.on("connect_start", (data: ConnectStartEventData) => {
   console.log("Connection starting:", data.source); // "auto-connect" | "manual-connect"
   console.log("Auth options:", data.authOptions?.provider); // "google" | "apple" | etc.
+  console.log("Wallet ID:", data.walletId); // only for embedded providers
 });
 
 // 2. connect - Fired when connection succeeds (includes full ConnectResult)

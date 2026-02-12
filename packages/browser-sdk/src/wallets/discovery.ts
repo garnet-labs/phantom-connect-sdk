@@ -1,4 +1,5 @@
 import type { InjectedWalletInfo, PhantomExtended } from "./registry";
+import { PHANTOM_ICON } from "@phantom/constants";
 import { AddressType as ClientAddressType } from "@phantom/client";
 import type { ISolanaChain, IEthereumChain } from "@phantom/chain-interfaces";
 import { isPhantomExtensionInstalled } from "@phantom/browser-injected-sdk";
@@ -508,7 +509,7 @@ export function discoverPhantomWallet(addressTypes: ClientAddressType[]): Inject
   return {
     id: "phantom",
     name: "Phantom",
-    icon: undefined, // Icon will be rendered from icons package in UI components
+    icon: PHANTOM_ICON,
     addressTypes,
     providers: {
       solana: addressTypes.includes(ClientAddressType.solana) ? (phantomInstance.solana as any) : undefined,

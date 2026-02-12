@@ -56,6 +56,7 @@ export interface ConnectEventData extends ConnectResult {
 export interface ConnectStartEventData {
   source: "auto-connect" | "manual-connect";
   authOptions?: { provider?: string };
+  walletId?: string;
 }
 
 export interface ConnectErrorEventData {

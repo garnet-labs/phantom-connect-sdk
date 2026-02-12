@@ -1,5 +1,21 @@
 # @phantom/openclaw-plugin
 
+## 0.1.1
+
+### Patch Changes
+
+- 148e8e3: Improve documentation for MCP server and OpenClaw plugin:
+  - Add comprehensive Quick Start guide with installation checklist
+  - Add Network IDs Reference section with CAIP-2/CAIP-10 format examples
+  - Add complete documentation for all 5 tools (transfer_tokens and buy_token now fully documented)
+  - Add safety considerations and confirmation requirements for financial operations
+  - Fix incorrect Solana devnet network identifier
+  - Add redirect URL configuration instructions for Phantom Portal setup
+- Updated dependencies [148e8e3]
+- Updated dependencies [132b012]
+- Updated dependencies [d769c51]
+  - @phantom/mcp-server@0.1.1
+
 ## 0.1.0
 
 ### Major Changes
