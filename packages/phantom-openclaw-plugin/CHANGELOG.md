@@ -1,5 +1,11 @@
 # @phantom/openclaw-plugin
 
+## 0.1.2
+
+### Patch Changes
+
+- Fix OpenClaw config handling so plugin-provided Phantom auth settings are applied to environment variables before session initialization, preventing incorrect fallback to OAuth dynamic client registration.
+
 ## 0.1.1
 
 ### Patch Changes

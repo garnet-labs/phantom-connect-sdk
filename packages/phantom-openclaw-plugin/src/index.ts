@@ -12,24 +12,57 @@ import { registerPhantomTools } from "./tools/register-tools.js";
 // Singleton session instance
 let sessionInstance: PluginSession | null = null;
 
+const STRING_CONFIG_KEYS = [
+  "PHANTOM_APP_ID",
+  "PHANTOM_CLIENT_ID",
+  "PHANTOM_CLIENT_SECRET",
+  "PHANTOM_AUTH_BASE_URL",
+  "PHANTOM_CONNECT_BASE_URL",
+  "PHANTOM_API_BASE_URL",
+  "PHANTOM_CALLBACK_PATH",
+  "PHANTOM_SSO_PROVIDER",
+  "PHANTOM_MCP_DEBUG",
+] as const;
+
+function applyConfigToEnv(config?: Record<string, unknown>): void {
+  if (!config) {
+    return;
+  }
+
+  for (const key of STRING_CONFIG_KEYS) {
+    const value = config[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      process.env[key] = value.trim();
+    }
+  }
+
+  const rawPort = config.PHANTOM_CALLBACK_PORT;
+  let parsedPort: number | null = null;
+
+  if (typeof rawPort === "number") {
+    parsedPort = rawPort;
+  } else if (typeof rawPort === "string") {
+    const parsed = Number.parseInt(rawPort, 10);
+    parsedPort = Number.isNaN(parsed) ? null : parsed;
+  }
+
+  if (parsedPort !== null && Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535) {
+    process.env.PHANTOM_CALLBACK_PORT = String(parsedPort);
+  }
+}
+
 /**
  * Get or create the plugin session with configuration
  */
 function getSession(config?: Record<string, unknown>): PluginSession {
   if (!sessionInstance) {
-    // Extract configuration from OpenClaw API config
-    const appId = typeof config?.PHANTOM_APP_ID === "string" ? config.PHANTOM_APP_ID : undefined;
+    applyConfigToEnv(config);
 
-    // Parse callback port - accept both number and numeric string
-    let callbackPort: number | undefined;
-    if (typeof config?.PHANTOM_CALLBACK_PORT === "number") {
-      callbackPort = config.PHANTOM_CALLBACK_PORT;
-    } else if (typeof config?.PHANTOM_CALLBACK_PORT === "string") {
-      const parsed = parseInt(config.PHANTOM_CALLBACK_PORT, 10);
-      if (!isNaN(parsed) && parsed > 0 && parsed <= 65535) {
-        callbackPort = parsed;
-      }
-    }
+    const appId = process.env.PHANTOM_APP_ID ?? process.env.PHANTOM_CLIENT_ID;
+
+    const envPort = process.env.PHANTOM_CALLBACK_PORT?.trim();
+    const parsedPort = envPort ? Number.parseInt(envPort, 10) : NaN;
+    const callbackPort = Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535 ? parsedPort : undefined;
 
     sessionInstance = new PluginSession({
       appId,
