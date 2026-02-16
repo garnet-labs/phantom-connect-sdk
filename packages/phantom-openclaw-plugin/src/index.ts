@@ -11,6 +11,7 @@ import { registerPhantomTools } from "./tools/register-tools.js";
 
 // Singleton session instance
 let sessionInstance: PluginSession | null = null;
+const PLUGIN_ID = "phantom-openclaw-plugin";
 
 const STRING_CONFIG_KEYS = [
   "PHANTOM_APP_ID",
@@ -23,6 +24,42 @@ const STRING_CONFIG_KEYS = [
   "PHANTOM_SSO_PROVIDER",
   "PHANTOM_MCP_DEBUG",
 ] as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+/**
+ * OpenClaw passes the full openclaw.json object as api.config.
+ * Extract this plugin's scoped config when available.
+ */
+function getPluginConfig(fullConfig?: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (!fullConfig) {
+    return undefined;
+  }
+
+  const plugins = fullConfig.plugins;
+  if (!isRecord(plugins)) {
+    return fullConfig;
+  }
+
+  const entries = plugins.entries;
+  if (!isRecord(entries)) {
+    return fullConfig;
+  }
+
+  const pluginEntry = entries[PLUGIN_ID];
+  if (!isRecord(pluginEntry)) {
+    return fullConfig;
+  }
+
+  const pluginConfig = pluginEntry.config;
+  if (isRecord(pluginConfig)) {
+    return pluginConfig;
+  }
+
+  return fullConfig;
+}
 
 function applyConfigToEnv(config?: Record<string, unknown>): void {
   if (!config) {
@@ -56,9 +93,15 @@ function applyConfigToEnv(config?: Record<string, unknown>): void {
  */
 function getSession(config?: Record<string, unknown>): PluginSession {
   if (!sessionInstance) {
-    applyConfigToEnv(config);
+    const pluginConfig = getPluginConfig(config);
+    applyConfigToEnv(pluginConfig);
 
-    const appId = process.env.PHANTOM_APP_ID ?? process.env.PHANTOM_CLIENT_ID;
+    const appId = (process.env.PHANTOM_APP_ID ?? process.env.PHANTOM_CLIENT_ID)?.trim();
+    if (!appId) {
+      throw new Error(
+        'PHANTOM_APP_ID is required. Configure it in "~/.openclaw/openclaw.json" at plugins.entries["phantom-openclaw-plugin"].config.PHANTOM_APP_ID',
+      );
+    }
 
     const envPort = process.env.PHANTOM_CALLBACK_PORT?.trim();
     const parsedPort = envPort ? Number.parseInt(envPort, 10) : NaN;

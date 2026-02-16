@@ -38,6 +38,7 @@ export interface OAuthFlowOptions {
   connectBaseUrl?: string;
   callbackPort?: number;
   callbackPath?: string;
+  /** Pre-registered app/client ID (UUID) or DCR naming prefix */
   appId?: string;
   provider?: string; // SSO provider: google, apple, or phantom
 }
@@ -62,11 +63,13 @@ interface TokenResponse {
   token_type: string;
 }
 
+const UUID_CLIENT_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Orchestrates the complete OAuth 2.0 authorization flow with PKCE
  *
  * Flow steps:
- * 1. Register OAuth client via DCR (or use env vars)
+ * 1. Resolve OAuth client from env/appId (or register via DCR)
  * 2. Generate PKCE challenge (code_verifier, code_challenge using S256)
  * 3. Generate state for CSRF protection
  * 4. Build authorization URL (auth.phantom.app/oauth2/auth)
@@ -96,7 +99,7 @@ export class OAuthFlow {
    * @param options.connectBaseUrl - Base URL of Phantom Connect (default: https://connect.phantom.app or PHANTOM_CONNECT_BASE_URL env var)
    * @param options.callbackPort - Port for the local callback server (default: 8080 or PHANTOM_CALLBACK_PORT env var)
    * @param options.callbackPath - Path for the OAuth callback (default: /callback or PHANTOM_CALLBACK_PATH env var)
-   * @param options.appId - Application identifier prefix (default: phantom-mcp)
+   * @param options.appId - Pre-registered app/client ID (UUID) or DCR naming prefix (default: phantom-mcp)
    * @param options.provider - SSO provider (default: google or PHANTOM_SSO_PROVIDER env var)
    */
   constructor(options: OAuthFlowOptions = {}) {
@@ -157,16 +160,26 @@ export class OAuthFlow {
     const envClientId = (process.env.PHANTOM_APP_ID || process.env.PHANTOM_CLIENT_ID)?.trim();
     const envClientSecret = process.env.PHANTOM_CLIENT_SECRET?.trim();
 
-    const hasClientId = envClientId && envClientId.length > 0;
-    const hasClientSecret = envClientSecret && envClientSecret.length > 0;
+    const providedClientId = this.getClientIdFromAppId();
+    const hasClientSecret = Boolean(envClientSecret && envClientSecret.length > 0);
 
-    if (hasClientId) {
+    if (envClientId) {
       this.logger.info("Step 1: Using client credentials from environment variables");
       const clientType = hasClientSecret ? "confidential" : "public";
       this.logger.info(`Client type: ${clientType}`);
       clientConfig = {
         client_id: envClientId,
         client_secret: envClientSecret || "", // Empty string for public clients
+        client_id_issued_at: Math.floor(Date.now() / 1000),
+      };
+      this.logger.info(`Using app ID: ${clientConfig.client_id}`);
+    } else if (providedClientId) {
+      this.logger.info("Step 1: Using appId provided via OAuthFlow options");
+      const clientType = hasClientSecret ? "confidential" : "public";
+      this.logger.info(`Client type: ${clientType}`);
+      clientConfig = {
+        client_id: providedClientId,
+        client_secret: envClientSecret || "",
         client_id_issued_at: Math.floor(Date.now() / 1000),
       };
       this.logger.info(`Using app ID: ${clientConfig.client_id}`);
@@ -335,6 +348,18 @@ export class OAuthFlow {
     });
 
     return `${this.connectBaseUrl}/login?${params.toString()}`;
+  }
+
+  /**
+   * Returns constructor appId when it looks like a pre-registered client identifier.
+   * Non-UUID values are treated as DCR naming prefixes for backward compatibility.
+   */
+  private getClientIdFromAppId(): string | null {
+    const appId = this.appId.trim();
+    if (!appId) {
+      return null;
+    }
+    return UUID_CLIENT_ID_REGEX.test(appId) ? appId : null;
   }
 
   /**

@@ -114,6 +114,16 @@ Configure the plugin in your OpenClaw configuration file (`~/.openclaw/openclaw.
 
 **Note:** Most users only need to provide `PHANTOM_APP_ID`. The other options are for advanced use cases.
 
+### Troubleshooting: `DCR 404` During Startup
+
+If startup fails with `Failed to register OAuth client` and `status code 404`, OpenClaw likely did not provide a valid `PHANTOM_APP_ID` to the plugin.
+
+Verify your config is nested exactly at:
+
+`plugins.entries["phantom-openclaw-plugin"].config.PHANTOM_APP_ID`
+
+`PHANTOM_APP_ID` values are issued from [phantom.com/portal](https://phantom.com/portal).
+
 ## Available Tools
 
 The plugin exposes the following tools from the Phantom MCP Server:

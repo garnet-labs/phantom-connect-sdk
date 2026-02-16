@@ -1,5 +1,22 @@
 # @phantom/openclaw-plugin
 
+## 0.1.4
+
+### Patch Changes
+
+- 2977094: Fix OpenClaw startup failures caused by unwanted DCR registration.
+  - `@phantom/openclaw-plugin`: correctly reads plugin-scoped config from full OpenClaw `api.config` payload and fails fast with a clear error when `PHANTOM_APP_ID` is missing.
+  - `@phantom/mcp-server`: uses constructor `appId` as `client_id` when it is a pre-registered UUID, avoiding DCR for configured apps.
+
+- Updated dependencies [2977094]
+  - @phantom/mcp-server@0.1.3
+
+## 0.1.3
+
+### Patch Changes
+
+- Add the required `configSchema` to the OpenClaw plugin manifest so plugin installation no longer fails OpenClaw config validation.
+
 ## 0.1.2
 
 ### Patch Changes

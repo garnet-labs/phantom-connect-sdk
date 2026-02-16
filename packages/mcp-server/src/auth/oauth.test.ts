@@ -342,6 +342,44 @@ describe("OAuthFlow", () => {
       expect(MockedDCRClient).toHaveBeenCalledWith("https://auth.phantom.app", "custom-app");
     });
 
+    it("should use UUID appId from options as client_id without DCR", async () => {
+      const appId = "123e4567-e89b-12d3-a456-426614174000";
+      const customFlow = new OAuthFlow({ appId });
+
+      await customFlow.authenticate();
+
+      expect(MockedDCRClient).not.toHaveBeenCalled();
+      expect(mockDCRClient.register).not.toHaveBeenCalled();
+      const authUrl = mockedOpen.mock.calls[0][0] as string;
+      const url = new URL(authUrl);
+      expect(url.searchParams.get("app_id")).toBe(appId);
+    });
+
+    it("should prioritize PHANTOM_APP_ID env var over options appId", async () => {
+      const originalAppId = process.env.PHANTOM_APP_ID;
+      const envAppId = "123e4567-e89b-12d3-a456-426614174001";
+      process.env.PHANTOM_APP_ID = envAppId;
+
+      try {
+        const customFlow = new OAuthFlow({
+          appId: "123e4567-e89b-12d3-a456-426614174000",
+        });
+
+        await customFlow.authenticate();
+
+        expect(MockedDCRClient).not.toHaveBeenCalled();
+        const authUrl = mockedOpen.mock.calls[0][0] as string;
+        const url = new URL(authUrl);
+        expect(url.searchParams.get("app_id")).toBe(envAppId);
+      } finally {
+        if (originalAppId !== undefined) {
+          process.env.PHANTOM_APP_ID = originalAppId;
+        } else {
+          delete process.env.PHANTOM_APP_ID;
+        }
+      }
+    });
+
     it("should log flow progress to stderr", async () => {
       const stderrSpy = jest.spyOn(process.stderr, "write");
 

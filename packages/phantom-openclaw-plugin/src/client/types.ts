@@ -6,7 +6,7 @@
  * OpenClaw Plugin API interface
  */
 export type OpenClawApi = {
-  /** Plugin configuration provided by OpenClaw */
+  /** OpenClaw config payload (can be full openclaw.json, not only plugin-scoped config) */
   config?: Record<string, unknown>;
   /** Register a tool with OpenClaw */
   registerTool: (definition: {
