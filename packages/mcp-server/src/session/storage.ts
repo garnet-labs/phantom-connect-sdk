@@ -55,6 +55,7 @@ export class SessionStorage {
         typeof session.walletId !== "string" ||
         typeof session.organizationId !== "string" ||
         typeof session.authUserId !== "string" ||
+        (session.appId !== undefined && typeof session.appId !== "string") ||
         typeof session.stamperKeys?.publicKey !== "string" ||
         typeof session.stamperKeys?.secretKey !== "string" ||
         typeof session.createdAt !== "number" ||

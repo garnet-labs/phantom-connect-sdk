@@ -14,6 +14,7 @@ import { getSolanaAddress } from "../utils/solana.js";
 import { parseBaseUnitAmount, parseUiAmount, requirePositiveAmount } from "../utils/amount.js";
 
 const DEFAULT_QUOTES_API_URL = "https://api.phantom.app/swap/v2/quotes";
+const DEFAULT_PHANTOM_VERSION = "mcp-server";
 
 const DEFAULT_SOLANA_RPC_URLS: Record<string, string> = {
   "solana:101": "https://api.mainnet-beta.solana.com",
@@ -214,9 +215,9 @@ export const buyTokenTool: ToolHandler = {
         description: "Set true to sell native SOL (default: true if sellTokenMint not provided)",
       },
       amount: {
-        type: "string",
+        type: ["string", "number"],
         description:
-          "The amount to swap as a string (e.g., \"0.5\" or \"1000000\"). When exactOut is false (default), this is the sell amount. When exactOut is true, this is the buy amount. Interpretation depends on amountUnit: 'ui' interprets as token units (e.g., 0.5 SOL), 'base' interprets as atomic units (e.g., 500000000 lamports).",
+          "The amount to swap (e.g., \"0.5\", 0.5, \"1000000\", or 1000000). When exactOut is false (default), this is the sell amount. When exactOut is true, this is the buy amount. Interpretation depends on amountUnit: 'ui' interprets as token units (e.g., 0.5 SOL), 'base' interprets as atomic units (e.g., 500000000 lamports).",
       },
       amountUnit: {
         type: "string",
@@ -265,7 +266,8 @@ export const buyTokenTool: ToolHandler = {
       },
       quoteApiUrl: {
         type: "string",
-        description: "Optional quotes API URL override",
+        description:
+          "Optional Phantom-compatible quotes API URL override. This must point to an endpoint that accepts Phantom's swap quote request format. Do not use Jupiter or other third-party API URLs as they have different request/response schemas.",
       },
       derivationIndex: {
         type: "number",
@@ -286,9 +288,12 @@ export const buyTokenTool: ToolHandler = {
       throw new Error("buy_token currently supports Solana networks only");
     }
 
-    if (typeof params.amount !== "string") {
-      throw new Error("amount must be a string");
+    // Accept both string and number for amount
+    if (typeof params.amount !== "string" && typeof params.amount !== "number") {
+      throw new Error(`amount must be a string or number, got type: ${typeof params.amount}`);
     }
+
+    const amount = params.amount as string | number;
 
     const walletId = typeof params.walletId === "string" ? params.walletId : session.walletId;
     if (!walletId) {
@@ -354,7 +359,7 @@ export const buyTokenTool: ToolHandler = {
     const exactOut = typeof params.exactOut === "boolean" ? params.exactOut : false;
     let amountBaseUnits: bigint;
     if (amountUnit === "base") {
-      amountBaseUnits = parseBaseUnitAmount(params.amount);
+      amountBaseUnits = parseBaseUnitAmount(amount);
     } else {
       let decimals: number | undefined;
       if (exactOut) {
@@ -395,7 +400,7 @@ export const buyTokenTool: ToolHandler = {
         throw new Error("sellTokenMint is required to lookup decimals");
       }
 
-      amountBaseUnits = parseUiAmount(params.amount, decimals);
+      amountBaseUnits = parseUiAmount(amount, decimals);
     }
 
     requirePositiveAmount(amountBaseUnits);
@@ -449,6 +454,25 @@ export const buyTokenTool: ToolHandler = {
     const quoteApiOrigin = new URL(quoteApiUrl).origin;
     logger.info(`Requesting quote from ${quoteApiOrigin}`);
 
+    const appId =
+      (typeof session.appId === "string" && session.appId) ||
+      process.env.PHANTOM_APP_ID ||
+      process.env.PHANTOM_CLIENT_ID;
+    if (!appId) {
+      logger.warn("Quote request missing app id; sending request without x-api-key header");
+    }
+
+    const quoteHeaders: Record<string, string> = {
+      "Content-Type": "application/json",
+      "x-phantom-platform": "mcp",
+      "X-Phantom-Version": process.env.PHANTOM_VERSION ?? DEFAULT_PHANTOM_VERSION,
+    };
+    if (appId) {
+      // Keep legacy x-api-key for backwards compatibility while also mirroring Terminal headers.
+      quoteHeaders["x-api-key"] = appId;
+      quoteHeaders["X-App-Id"] = appId;
+    }
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
 
@@ -456,9 +480,7 @@ export const buyTokenTool: ToolHandler = {
     try {
       response = await fetch(quoteApiUrl, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: quoteHeaders,
         body: JSON.stringify(body),
         signal: controller.signal,
       });
@@ -488,11 +510,14 @@ export const buyTokenTool: ToolHandler = {
 
     const execute = typeof params.execute === "boolean" ? params.execute : false;
     if (!execute) {
+      logger.info("Returning quote only (execute: false)");
       return {
         quoteRequest: body,
         quoteResponse: responseJson,
       };
     }
+
+    logger.info("Executing swap transaction (execute: true)");
 
     // Validate response structure before type assertion
     if (
@@ -500,19 +525,29 @@ export const buyTokenTool: ToolHandler = {
       responseJson === null ||
       !Array.isArray((responseJson as Record<string, unknown>).quotes)
     ) {
-      throw new Error("Quote response has unexpected format: missing quotes array");
+      throw new Error(
+        `Quote response has unexpected format: expected object with quotes array, got ${typeof responseJson}`,
+      );
     }
 
     const quotes = (responseJson as { quotes: unknown[] }).quotes;
+    if (quotes.length === 0) {
+      throw new Error("Quote response contains empty quotes array - no swaps available");
+    }
+
     const quote = quotes[0] as { transactionData?: string[] } | undefined;
     const transactionData = quote?.transactionData?.[0];
     if (!transactionData) {
-      throw new Error("Quote response missing transaction data in first quote");
+      throw new Error(
+        `Quote response missing transaction data in first quote. Quote structure: ${JSON.stringify(quote)}`,
+      );
     }
 
+    logger.info("Decoding and signing transaction");
     const decoded = decodeTransactionData(transactionData, params.base64EncodedTx as boolean | undefined);
     const encoded = base64urlEncode(decoded);
 
+    logger.info("Sending transaction to network");
     const result = await context.client.signAndSendTransaction({
       walletId,
       transaction: encoded,
@@ -520,6 +555,8 @@ export const buyTokenTool: ToolHandler = {
       derivationIndex,
       account: taker,
     });
+
+    logger.info(`Transaction executed successfully: ${result.hash ?? "no hash returned"}`);
 
     return {
       quoteRequest: body,

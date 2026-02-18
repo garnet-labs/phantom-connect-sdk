@@ -57,6 +57,10 @@ export class SessionManager {
   private session: SessionData | null = null;
   private client: PhantomClient | null = null;
 
+  private resolveAppId(): string {
+    return process.env.PHANTOM_APP_ID || process.env.PHANTOM_CLIENT_ID || this.appId;
+  }
+
   /**
    * Creates a new SessionManager
    *
@@ -206,6 +210,7 @@ export class SessionManager {
       walletId: oauthResult.walletId,
       organizationId: oauthResult.organizationId,
       authUserId: oauthResult.authUserId,
+      appId: oauthResult.clientConfig.client_id,
       stamperKeys: oauthResult.stamperKeys,
       createdAt: now,
       updatedAt: now,
@@ -241,7 +246,7 @@ export class SessionManager {
     });
 
     // Step 2: Get client ID for X-App-Id header
-    const appId = process.env.PHANTOM_APP_ID || process.env.PHANTOM_CLIENT_ID || this.appId;
+    const appId = this.session.appId || this.resolveAppId();
 
     // Step 3: Create PhantomClient with stamper, organizationId, and headers
     this.client = new PhantomClient(

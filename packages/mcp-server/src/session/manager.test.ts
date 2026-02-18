@@ -188,6 +188,7 @@ describe("SessionManager", () => {
           walletId: oauthResult.walletId,
           organizationId: oauthResult.organizationId,
           authUserId: oauthResult.authUserId,
+          appId: oauthResult.clientConfig.client_id,
           // SSO: stamper keys come from OAuthResult, not generated separately
           stamperKeys: oauthResult.stamperKeys,
         }),

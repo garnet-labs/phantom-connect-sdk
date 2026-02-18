@@ -70,7 +70,7 @@ Transfer SOL or SPL tokens on Solana. **Warning:** This tool builds, signs, and 
 
 - `networkId`: Solana network (`solana:mainnet`, `solana:devnet`, `solana:testnet`)
 - `to`: Recipient's Solana address (44-character base58 string)
-- `amount`: Transfer amount as string
+- `amount`: Transfer amount as string or number (e.g., "0.1", 0.1, "1000000", or 1000000)
 - `amountUnit`:
   - `"ui"` - Human-readable units (e.g., "0.1" = 0.1 SOL or 0.1 tokens)
   - `"base"` - Atomic units (e.g., "100000000" = 0.1 SOL in lamports)
@@ -138,7 +138,7 @@ Fetch a Solana swap quote from Phantom's quotes API. Optionally execute the swap
 - `buyTokenIsNative`: (Optional) Set `true` to buy native SOL
 - `buyTokenMint`: SPL token mint to buy (44-character base58 address)
   - Example: `"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"` (USDC)
-- `amount`: Sell amount as string
+- `amount`: Sell amount as string or number (e.g., "0.5", 0.5, "500000000", or 500000000)
 - `amountUnit`:
   - `"ui"` - Token units (e.g., "0.5" SOL)
   - `"base"` - Atomic units (e.g., "500000000" lamports)

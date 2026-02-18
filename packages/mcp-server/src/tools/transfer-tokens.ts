@@ -117,8 +117,8 @@ export const transferTokensTool: ToolHandler = {
         description: "Recipient Solana address",
       },
       amount: {
-        type: "string",
-        description: 'Transfer amount as a string (e.g., "0.5" or "1000000")',
+        type: ["string", "number"],
+        description: 'Transfer amount (e.g., "0.5", 0.5, "1000000", or 1000000)',
       },
       amountUnit: {
         type: "string",
@@ -163,9 +163,13 @@ export const transferTokensTool: ToolHandler = {
     if (typeof params.to !== "string") {
       throw new Error("to must be a string");
     }
-    if (typeof params.amount !== "string") {
-      throw new Error("amount must be a string");
+
+    // Accept both string and number for amount
+    if (typeof params.amount !== "string" && typeof params.amount !== "number") {
+      throw new Error(`amount must be a string or number, got type: ${typeof params.amount}`);
     }
+
+    const amount = params.amount as string | number;
 
     const walletId = typeof params.walletId === "string" ? params.walletId : session.walletId;
     if (!walletId) {
@@ -203,9 +207,7 @@ export const transferTokensTool: ToolHandler = {
 
       if (!tokenMint) {
         const lamports =
-          amountUnit === "base"
-            ? parseBaseUnitAmount(params.amount)
-            : parseUiAmount(params.amount, 9 /* SOL decimals */);
+          amountUnit === "base" ? parseBaseUnitAmount(amount) : parseUiAmount(amount, 9 /* SOL decimals */);
 
         requirePositiveAmount(lamports);
 
@@ -253,7 +255,7 @@ export const transferTokensTool: ToolHandler = {
         }
 
         const amountBaseUnits =
-          amountUnit === "base" ? parseBaseUnitAmount(params.amount) : parseUiAmount(params.amount, decimals as number);
+          amountUnit === "base" ? parseBaseUnitAmount(amount) : parseUiAmount(amount, decimals as number);
 
         requirePositiveAmount(amountBaseUnits);
 

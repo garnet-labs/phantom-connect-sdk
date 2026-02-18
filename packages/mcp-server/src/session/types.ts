@@ -35,6 +35,8 @@ export interface SessionData {
   walletId: string;
   organizationId: string;
   authUserId: string;
+  /** App/client ID used during authentication (for quote API key headers) */
+  appId?: string;
   stamperKeys: {
     publicKey: string;
     secretKey: string;

@@ -1,5 +1,27 @@
 # @phantom/openclaw-plugin
 
+## 0.1.6
+
+### Patch Changes
+
+- 26d1963: Fix numeric amount validation edge cases in MCP server
+  - `parseBaseUnitAmount`: reject numbers above `Number.MAX_SAFE_INTEGER` to prevent silent precision loss; callers should pass strings for large base unit amounts
+  - `parseUiAmount`: handle exponential notation (e.g., `1e-7`) by using `toFixed(decimals)` instead of `String()`, which previously produced strings like `"1e-7"` that failed regex validation
+
+- Updated dependencies [26d1963]
+  - @phantom/mcp-server@0.1.5
+
+## 0.1.5
+
+### Patch Changes
+
+- Align swap quote requests with Terminal client-auth behavior by adding Phantom client auth headers (`X-PhantomAuthToken`, `X-PhantomNonce`) and standard Phantom platform/version headers to `buy_token`.
+
+  Keep compatibility headers (`x-api-key`, `X-App-Id`) in quote requests and add test coverage for deterministic client-auth header generation.
+
+- Updated dependencies
+  - @phantom/mcp-server@0.1.4
+
 ## 0.1.4
 
 ### Patch Changes
