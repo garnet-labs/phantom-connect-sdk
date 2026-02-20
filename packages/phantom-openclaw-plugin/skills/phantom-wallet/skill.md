@@ -111,7 +111,7 @@ Transfer SOL or SPL tokens on Solana. **Warning:** This tool builds, signs, and 
 
 ### buy_token
 
-Fetch a Solana swap quote from Phantom's quotes API. Optionally execute the swap immediately.
+Fetch an optimized Solana token swap quote from Phantom's quotes API. Use for both swap-intent and buy-intent flows, and optionally execute immediately.
 
 **Parameters:**
 
@@ -122,6 +122,7 @@ Fetch a Solana swap quote from Phantom's quotes API. Optionally execute the swap
   "buyTokenMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
   "amount": "0.5",
   "amountUnit": "ui",
+  "exactOut": false,
   "slippageTolerance": 1,
   "execute": false,
   "derivationIndex": 0
@@ -138,10 +139,15 @@ Fetch a Solana swap quote from Phantom's quotes API. Optionally execute the swap
 - `buyTokenIsNative`: (Optional) Set `true` to buy native SOL
 - `buyTokenMint`: SPL token mint to buy (44-character base58 address)
   - Example: `"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"` (USDC)
-- `amount`: Sell amount as string or number (e.g., "0.5", 0.5, "500000000", or 500000000)
+- `amount`: Amount as string or number (e.g., "0.5", 0.5, "500000000", or 500000000)
+  - With `exactOut: false` (default), this is the **sell amount** (swap-intent)
+  - With `exactOut: true`, this is the **buy amount** (buy-intent)
 - `amountUnit`:
   - `"ui"` - Token units (e.g., "0.5" SOL)
   - `"base"` - Atomic units (e.g., "500000000" lamports)
+- `exactOut`:
+  - `false` - Spend exactly `amount` and receive as much output as possible (default)
+  - `true` - Target receiving exactly `amount` output tokens
 - `slippageTolerance`: Maximum acceptable slippage as percentage
   - Range: 0-100 (decimals allowed, e.g., 0.5 for 0.5%)
   - Example: `1` = 1% slippage tolerance
@@ -179,6 +185,10 @@ The quote contains:
 
 - When `execute: false`: Returns quote only (safe, no transaction sent)
 - When `execute: true`: Immediately signs and sends the swap transaction (irreversible)
+- `buy_token` supports both:
+  - **Swap-intent** (`exactOut: false`) when user specifies how much to spend
+  - **Buy-intent** (`exactOut: true`) when user specifies how much they want to receive
+- Phantom quote responses include route selection and execution parameters intended to improve transaction landing reliability
 - **Always review quotes before executing swaps**
 - Display expected output amount, fees, and price impact to user
 - Get explicit user confirmation before setting `execute: true`

@@ -4,8 +4,8 @@
  */
 
 import * as crypto from "crypto";
+import { execFile } from "child_process";
 import axios, { type AxiosError } from "axios";
-import open from "open";
 import { Logger } from "../utils/logger";
 import { DCRClient } from "./dcr";
 import { CallbackServer } from "./callback-server";
@@ -217,7 +217,14 @@ export class OAuthFlow {
     // Step 6: Open browser
     this.logger.info(`Step 6: Opening browser for ${this.provider} authentication`);
     try {
-      await open(authUrl);
+      await new Promise<void>((resolve, reject) => {
+        if (process.platform === "win32") {
+          execFile("cmd", ["/c", "start", "", authUrl], err => (err ? reject(err) : resolve()));
+        } else {
+          const cmd = process.platform === "darwin" ? "open" : "xdg-open";
+          execFile(cmd, [authUrl], err => (err ? reject(err) : resolve()));
+        }
+      });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(`Failed to automatically open browser for ${this.provider} authentication: ${errorMessage}`);

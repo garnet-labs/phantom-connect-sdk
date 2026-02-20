@@ -1,5 +1,14 @@
 # @phantom/mcp-server
 
+## 0.1.6
+
+### Patch Changes
+
+- Clarify `buy_token` agent-facing behavior for swap-intent vs buy-intent flows (`exactOut`) and route/landing reliability guidance.
+- Add tool annotations and privacy policy for Claude MCP directory submission
+  - Add `readOnlyHint`, `destructiveHint`, and `openWorldHint` annotations to all 5 tools
+  - Add Privacy Policy section to README
+
 ## 0.1.5
 
 ### Patch Changes
@@ -22,24 +31,3 @@
 
 - 2977094: Fix OpenClaw startup failures caused by unwanted DCR registration.
   - `@phantom/openclaw-plugin`: correctly reads plugin-scoped config from full OpenClaw `api.config` payload and fails fast with a clear error when `PHANTOM_APP_ID` is missing.
-  - `@phantom/mcp-server`: uses constructor `appId` as `client_id` when it is a pre-registered UUID, avoiding DCR for configured apps.
-
-## 0.1.2
-
-### Patch Changes
-
-- Bump to 0.1.2 because 0.1.1 is already published on npm.
-
-## 0.1.1
-
-### Patch Changes
-
-- 148e8e3: Improve documentation for MCP server and OpenClaw plugin:
-  - Add comprehensive Quick Start guide with installation checklist
-  - Add Network IDs Reference section with CAIP-2/CAIP-10 format examples
-  - Add complete documentation for all 5 tools (transfer_tokens and buy_token now fully documented)
-  - Add safety considerations and confirmation requirements for financial operations
-  - Fix incorrect Solana devnet network identifier
-  - Add redirect URL configuration instructions for Phantom Portal setup
-- 132b012: Added tools for transfering and swapping tokens
-- d769c51: Fix MCP server executable not running when installed via npm/npx. The bin wrapper script was preventing the main server code from executing due to a failed `require.main === module` check. Changed to point bin directly to the built dist/index.js file, following the standard pattern used by official MCP servers.

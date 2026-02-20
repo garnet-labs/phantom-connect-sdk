@@ -150,6 +150,11 @@ export const transferTokensTool: ToolHandler = {
     },
     required: ["networkId", "to", "amount"],
   },
+  annotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   handler: async (params: Record<string, unknown>, context: ToolContext) => {
     const { client, session, logger } = context;
 

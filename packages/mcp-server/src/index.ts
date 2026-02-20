@@ -1,6 +1,5 @@
-#!/usr/bin/env node
-
-import { PhantomMCPServer } from "./server.js";
+// Library entry point — re-exports public API only.
+// For the CLI / MCP server entry point see cli.ts.
 
 // Export SessionManager and types for external usage
 export { SessionManager } from "./session/manager.js";
@@ -12,16 +11,3 @@ export type { ToolHandler, ToolContext } from "./tools/types.js";
 
 // Re-export PhantomClient type for convenience
 export type { PhantomClient } from "@phantom/client";
-
-async function main() {
-  const server = new PhantomMCPServer();
-  await server.start();
-}
-
-// Only run the server if this is the main module
-if (require.main === module) {
-  main().catch(error => {
-    console.error("Fatal error:", error);
-    process.exit(1);
-  });
-}

@@ -35,6 +35,11 @@ export const signMessageTool: ToolHandler = {
     },
     required: ["message", "networkId"],
   },
+  annotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   handler: async (params: Record<string, unknown>, context: ToolContext) => {
     const { client, session, logger } = context;
 

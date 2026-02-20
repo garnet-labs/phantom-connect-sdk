@@ -40,6 +40,11 @@ export const signTransactionTool: ToolHandler = {
     },
     required: ["transaction", "networkId"],
   },
+  annotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   handler: async (params: Record<string, unknown>, context: ToolContext) => {
     const { client, session, logger } = context;
 

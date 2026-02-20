@@ -72,16 +72,18 @@ export function PhantomProvider({ children, config, debugConfig, theme, appIcon,
       setErrors((prev: PhantomErrors) => ({ ...prev, connect: undefined }));
     };
 
-    const handleConnect = async (data: ConnectEventData) => {
+    const handleConnect = async (data?: ConnectEventData) => {
       try {
         setIsConnected(true);
         setIsConnecting(false);
 
-        // Store the full ConnectResult as user
-        setUser(data);
-
         const addrs = await sdk.getAddresses();
         setAddresses(addrs);
+
+        // Some injected wallet flows can dispatch connect without a full payload.
+        // Normalize to a minimal object so consumers never receive `undefined`.
+        const normalizedUser = (data ?? { addresses: addrs }) as ConnectResult;
+        setUser(normalizedUser);
       } catch (err) {
         console.error("Error connecting:", err);
 
@@ -101,14 +103,17 @@ export function PhantomProvider({ children, config, debugConfig, theme, appIcon,
       // Don't treat "No valid session found" or "No trusted connections available" from auto-connect as errors
       // These are expected states when no session exists, not actual errors
       const isAutoConnectNoSession =
-        errorData.source === "auto-connect" &&
-        (errorData.error === "No valid session found" || errorData.error === "No trusted connections available");
+        errorData?.source === "auto-connect" &&
+        (errorData?.error === "No valid session found" || errorData?.error === "No trusted connections available");
 
       if (isAutoConnectNoSession) {
         // Clear any previous error state, but don't set a new error for this expected case
         setErrors((prev: PhantomErrors) => ({ ...prev, connect: undefined }));
       } else {
-        setErrors((prev: PhantomErrors) => ({ ...prev, connect: new Error(errorData.error || "Connection failed") }));
+        setErrors((prev: PhantomErrors) => ({
+          ...prev,
+          connect: new Error(errorData?.error || "Connection failed"),
+        }));
       }
 
       setAddresses([]);

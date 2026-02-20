@@ -8,19 +8,20 @@ import { DCRClient } from "./dcr";
 import { CallbackServer } from "./callback-server";
 import type { OAuthCallbackParams, DCRClientConfig } from "../session/types";
 
+import * as child_process from "child_process";
+
 // Mock dependencies
 jest.mock("axios");
 jest.mock("./dcr");
 jest.mock("./callback-server");
-
-// Mock open as a default export function
-jest.mock("open", () => jest.fn());
-import open from "open";
+jest.mock("child_process");
 
 const mockedAxios = axios as jest.Mocked<typeof axios>;
 const MockedDCRClient = DCRClient as jest.MockedClass<typeof DCRClient>;
 const MockedCallbackServer = CallbackServer as jest.MockedClass<typeof CallbackServer>;
-const mockedOpen = open as jest.MockedFunction<typeof open>;
+const mockedExecFile = child_process.execFile as unknown as jest.MockedFunction<
+  (cmd: string, args: string[], cb: (err: Error | null) => void) => void
+>;
 
 describe("OAuthFlow", () => {
   let oauthFlow: OAuthFlow;
@@ -220,8 +221,10 @@ describe("OAuthFlow", () => {
       } as any;
       MockedCallbackServer.mockImplementation(() => mockCallbackServer);
 
-      // Setup open mock
-      mockedOpen.mockResolvedValue(undefined as any);
+      // Setup execFile mock - call the callback with no error
+      mockedExecFile.mockImplementation((_cmd: string, _args: string[], cb: (err: Error | null) => void) => {
+        cb(null);
+      });
 
       oauthFlow = new OAuthFlow();
     });
@@ -251,8 +254,8 @@ describe("OAuthFlow", () => {
     it("should open browser with SSO authorization URL", async () => {
       const result = await oauthFlow.authenticate();
 
-      expect(mockedOpen).toHaveBeenCalledTimes(1);
-      const authUrl = mockedOpen.mock.calls[0][0] as string;
+      expect(mockedExecFile).toHaveBeenCalledTimes(1);
+      const authUrl = mockedExecFile.mock.calls[0][1][0] as string;
       const url = new URL(authUrl);
 
       expect(url.origin).toBe("https://connect.phantom.app");
@@ -271,9 +274,9 @@ describe("OAuthFlow", () => {
       await oauthFlow.authenticate();
 
       expect(mockCallbackServer.waitForListening).toHaveBeenCalledTimes(1);
-      expect(mockedOpen).toHaveBeenCalledTimes(1);
+      expect(mockedExecFile).toHaveBeenCalledTimes(1);
       const waitOrder = mockCallbackServer.waitForListening.mock.invocationCallOrder[0];
-      const openOrder = mockedOpen.mock.invocationCallOrder[0];
+      const openOrder = mockedExecFile.mock.invocationCallOrder[0];
       expect(waitOrder).toBeLessThan(openOrder);
     });
 
@@ -317,7 +320,7 @@ describe("OAuthFlow", () => {
 
       await customFlow.authenticate();
 
-      const authUrl = mockedOpen.mock.calls[0][0] as string;
+      const authUrl = mockedExecFile.mock.calls[0][1][0] as string;
       const url = new URL(authUrl);
       expect(url.origin).toBe("https://custom-connect.example.com");
     });
@@ -350,7 +353,7 @@ describe("OAuthFlow", () => {
 
       expect(MockedDCRClient).not.toHaveBeenCalled();
       expect(mockDCRClient.register).not.toHaveBeenCalled();
-      const authUrl = mockedOpen.mock.calls[0][0] as string;
+      const authUrl = mockedExecFile.mock.calls[0][1][0] as string;
       const url = new URL(authUrl);
       expect(url.searchParams.get("app_id")).toBe(appId);
     });
@@ -368,7 +371,7 @@ describe("OAuthFlow", () => {
         await customFlow.authenticate();
 
         expect(MockedDCRClient).not.toHaveBeenCalled();
-        const authUrl = mockedOpen.mock.calls[0][0] as string;
+        const authUrl = mockedExecFile.mock.calls[0][1][0] as string;
         const url = new URL(authUrl);
         expect(url.searchParams.get("app_id")).toBe(envAppId);
       } finally {
@@ -418,7 +421,7 @@ describe("OAuthFlow", () => {
       const stagingFlow = new OAuthFlow();
       await stagingFlow.authenticate();
 
-      const authUrl = mockedOpen.mock.calls[0][0] as string;
+      const authUrl = mockedExecFile.mock.calls[0][1][0] as string;
       const url = new URL(authUrl);
       expect(url.origin).toBe("https://staging-connect.phantom.app");
 
@@ -594,7 +597,9 @@ describe("OAuthFlow", () => {
       } as any;
       MockedCallbackServer.mockImplementation(() => mockCallbackServer);
 
-      mockedOpen.mockResolvedValue(undefined as any);
+      mockedExecFile.mockImplementation((_cmd: string, _args: string[], cb: (err: Error | null) => void) => {
+        cb(null);
+      });
       mockedAxios.post.mockResolvedValue({
         data: {
           access_token: "test-access-token",
@@ -606,14 +611,14 @@ describe("OAuthFlow", () => {
 
       const flow1 = new OAuthFlow();
       await flow1.authenticate();
-      const url1 = mockedOpen.mock.calls[0][0] as string;
+      const url1 = mockedExecFile.mock.calls[0][1][0] as string;
       const challenge1 = new URL(url1).searchParams.get("code_challenge");
 
-      mockedOpen.mockClear();
+      mockedExecFile.mockClear();
 
       const flow2 = new OAuthFlow();
       await flow2.authenticate();
-      const url2 = mockedOpen.mock.calls[0][0] as string;
+      const url2 = mockedExecFile.mock.calls[0][1][0] as string;
       const challenge2 = new URL(url2).searchParams.get("code_challenge");
 
       expect(challenge1).not.toBe(challenge2);
@@ -642,7 +647,9 @@ describe("OAuthFlow", () => {
       } as any;
       MockedCallbackServer.mockImplementation(() => mockCallbackServer);
 
-      mockedOpen.mockResolvedValue(undefined as any);
+      mockedExecFile.mockImplementation((_cmd: string, _args: string[], cb: (err: Error | null) => void) => {
+        cb(null);
+      });
       mockedAxios.post.mockResolvedValue({
         data: {
           access_token: "test-access-token",
@@ -655,7 +662,7 @@ describe("OAuthFlow", () => {
       const flow = new OAuthFlow();
       await flow.authenticate();
 
-      const authUrl = mockedOpen.mock.calls[0][0] as string;
+      const authUrl = mockedExecFile.mock.calls[0][1][0] as string;
       const url = new URL(authUrl);
       const codeChallenge = url.searchParams.get("code_challenge");
 

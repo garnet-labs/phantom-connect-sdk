@@ -1,5 +1,18 @@
 # @phantom/openclaw-plugin
 
+## 0.1.7
+
+### Patch Changes
+
+- Fix OpenClaw tool schema registration to preserve MCP parameter typing and enum constraints so agents generate valid tool calls.
+
+  Improve `buy_token` agent-facing descriptions and wallet skill docs to clarify swap-intent vs buy-intent usage (`exactOut`) and route/landing reliability guidance.
+
+  Add regression tests for OpenClaw schema conversion to prevent future loss of required fields, enum constraints, and typed parameter validation.
+
+- Updated dependencies
+  - @phantom/mcp-server@0.1.7
+
 ## 0.1.6
 
 ### Patch Changes

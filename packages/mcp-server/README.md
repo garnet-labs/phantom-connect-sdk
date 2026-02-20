@@ -2,9 +2,11 @@
 
 > **⚠️ PREVIEW DISCLAIMER**
 >
-> This MCP server is currently in **preview** and may break or change at any time without notice. Early adopters should **always use a separate Phantom account** specifically for testing with AI agents.
+> This MCP server is currently in **preview** and may break or change at any time without notice.
 >
-> **Phantom makes no guarantees whatsoever around anything your agent may do using this MCP server.** Use at your own risk and never use accounts containing significant assets.
+> **Always use a separate Phantom account specifically for testing with AI agents. These accounts should not contain significant assets.**
+>
+> **Phantom makes no guarantees whatsoever around anything your agent may do using this MCP server.** Use at your own risk.
 
 An MCP (Model Context Protocol) server that provides LLMs like Claude with direct access to Phantom wallet operations. This enables AI assistants to interact with embedded wallets, view addresses, sign transactions, and sign messages across multiple blockchain networks (Solana, Ethereum, Bitcoin, Sui) through natural language interactions.
 
@@ -652,6 +654,29 @@ This package is part of the [Phantom Connect SDK](https://github.com/phantom/pha
 ## License
 
 See the main repository [LICENSE](../../LICENSE) file.
+
+## Privacy Policy
+
+The Phantom MCP Server connects to Phantom's embedded wallet infrastructure. Here is what data is involved:
+
+**Data collected and transmitted:**
+
+- OAuth authentication tokens (exchanged with `connect.phantom.app` during login)
+- Wallet identifiers and blockchain addresses (retrieved from Phantom's API)
+- Transaction and message signing requests (sent to Phantom's API for signing)
+- Swap quote requests (sent to `api.phantom.app` when using `buy_token`)
+
+**Local storage:**
+
+- Session data is stored in `~/.phantom-mcp/session.json` with user-only permissions (`0600`). This file contains your wallet ID, organization ID, and stamper keypair. It is never transmitted to any third party.
+
+**No data sold or shared:** Phantom does not sell your personal data. Data transmitted to Phantom's API is governed by [Phantom's Privacy Policy](https://phantom.com/privacy).
+
+**Retention:** Session files persist locally until you delete them. Phantom's server-side data retention is governed by Phantom's Privacy Policy.
+
+**Third-party services:** When using `buy_token`, swap quotes are fetched from `api.phantom.app`. No data is sent to Jupiter or other third-party aggregators directly by this server.
+
+For questions, contact [support@phantom.com](mailto:support@phantom.com) or visit [phantom.com/privacy](https://phantom.com/privacy).
 
 ## Support
 

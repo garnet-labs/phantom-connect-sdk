@@ -5,7 +5,6 @@
 // Mock all external dependencies FIRST before any imports
 jest.mock("./storage");
 jest.mock("../auth/oauth");
-jest.mock("open", () => jest.fn());
 jest.mock("@phantom/client", () => ({
   PhantomClient: jest.fn().mockImplementation(() => ({})),
 }));

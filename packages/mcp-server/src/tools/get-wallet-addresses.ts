@@ -17,6 +17,10 @@ export const getWalletAddressesTool: ToolHandler = {
       },
     },
   },
+  annotations: {
+    readOnlyHint: true,
+    openWorldHint: true,
+  },
   handler: async (params: Record<string, unknown>, context: ToolContext) => {
     const { client, session, logger } = context;
 

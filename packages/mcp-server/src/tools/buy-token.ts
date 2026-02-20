@@ -186,7 +186,7 @@ function decodeTransactionData(transactionData: string, base64Encoded: boolean |
 export const buyTokenTool: ToolHandler = {
   name: "buy_token",
   description:
-    "Fetches a swap quote from Phantom's quotes API for buying a token (Solana only). By default, this tool only fetches a quote and does not submit a transaction. Pass execute: true to sign and send the transaction.",
+    "Fetches an optimized Solana token swap quote from Phantom's quotes API and can optionally execute it. Despite the name, use this for both swaps and buy-intent flows (set exactOut: true to target the buy amount). By default it returns quote-only; pass execute: true to sign and send. Phantom quotes include route selection and execution parameters designed to improve landing reliability.",
   inputSchema: {
     type: "object",
     properties: {
@@ -276,6 +276,11 @@ export const buyTokenTool: ToolHandler = {
       },
     },
     required: ["amount"],
+  },
+  annotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
   },
   handler: async (params: Record<string, unknown>, context: ToolContext) => {
     const { session, logger } = context;

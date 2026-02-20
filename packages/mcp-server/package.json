@@ -1,6 +1,6 @@
 {
   "name": "@phantom/mcp-server",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "MCP Server for Phantom Wallet",
   "repository": {
     "type": "git",
@@ -10,7 +10,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "phantom-mcp": "./dist/index.js"
+    "phantom-mcp": "./dist/cli.js"
   },
   "scripts": {
     "?pack-release": "When https://github.com/changesets/changesets/issues/432 has a solution we can remove this trick",
@@ -22,7 +22,8 @@
     "test:watch": "jest --watch",
     "lint": "eslint src --ext .ts,.tsx",
     "check-types": "yarn tsc --noEmit",
-    "prettier": "prettier --write \"src/**/*.{ts,tsx}\""
+    "prettier": "prettier --write \"src/**/*.{ts,tsx}\"",
+    "pack:desktop": "yarn build && mcpb pack"
   },
   "devDependencies": {
     "@types/jest": "^29.5.12",
@@ -48,11 +49,12 @@
     "@solana/web3.js": "^1.95.5",
     "axios": "^1.6.7",
     "bs58": "^6.0.0",
-    "open": "^10.0.3",
     "openid-client": "^5.6.5"
   },
   "files": [
-    "dist"
+    "dist",
+    "manifest.json",
+    "icon.png"
   ],
   "publishConfig": {
     "directory": "_release/package"

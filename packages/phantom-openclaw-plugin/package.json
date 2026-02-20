@@ -1,6 +1,6 @@
 {
   "name": "@phantom/openclaw-plugin",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "OpenClaw plugin that bridges tool calls to Phantom's MCP server for wallet operations.",
   "repository": {
     "type": "git",
@@ -28,6 +28,8 @@
     "build": "rimraf ./dist && tsup",
     "dev": "tsup --watch",
     "clean": "rimraf dist",
+    "test": "jest",
+    "test:watch": "jest --watch",
     "lint": "tsc --noEmit && eslint --cache . --ext .ts,.tsx",
     "check-types": "tsc --noEmit",
     "prettier": "prettier --write \"src/**/*.{ts,tsx}\""

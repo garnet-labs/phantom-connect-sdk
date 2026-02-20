@@ -1,0 +1,12 @@
+node_modules/
+coverage/
+src/
+_release/
+*.mcpb
+*.tgz
+jest.config.js
+tsconfig.json
+tsup.config.ts
+test-auth.js
+README.md
+CHANGELOG.md

@@ -1,5 +1,13 @@
 # Phantom OpenClaw Plugin
 
+> **⚠️ PREVIEW DISCLAIMER**
+>
+> This OpenClaw plugin is currently in **preview** and may break or change at any time without notice.
+>
+> **Always use a separate Phantom account specifically for testing with AI agents. These accounts should not contain significant assets.**
+>
+> **Phantom makes no guarantees whatsoever around anything your agent may do using this plugin.** Use at your own risk.
+
 Direct integration with Phantom wallet for OpenClaw agents. This plugin wraps the Phantom MCP Server to provide seamless wallet operations including address retrieval, message signing, transaction signing, token transfers, and token swaps.
 
 ## Overview

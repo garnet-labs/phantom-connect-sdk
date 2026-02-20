@@ -92,6 +92,7 @@ export class PhantomMCPServer {
           name: tool.name,
           description: tool.description,
           inputSchema: tool.inputSchema,
+          annotations: tool.annotations,
         }));
 
         this.logger.info(`Returning ${toolDefinitions.length} tool definitions`);
@@ -196,16 +197,18 @@ export class PhantomMCPServer {
     this.logger.info("Starting PhantomMCPServer");
 
     try {
-      // Initialize session (loads existing or authenticates)
-      this.logger.info("Initializing session");
-      await this.sessionManager.initialize();
-      this.logger.info("Session initialized successfully");
-
-      // Connect stdio transport
+      // Connect stdio transport FIRST so Claude Desktop can complete the MCP
+      // handshake. Session initialization may open a browser for OAuth and
+      // must not block the transport from connecting.
       this.logger.info("Connecting stdio transport");
       const transport = new StdioServerTransport();
       await this.server.connect(transport);
       this.logger.info("Server connected and ready to accept requests");
+
+      // Initialize session after transport is connected
+      this.logger.info("Initializing session");
+      await this.sessionManager.initialize();
+      this.logger.info("Session initialized successfully");
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(`Failed to start server: ${errorMessage}`);

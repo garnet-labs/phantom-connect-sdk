@@ -1,0 +1,75 @@
+{
+  "manifest_version": "0.3",
+  "name": "phantom-mcp",
+  "display_name": "Phantom Wallet",
+  "version": "0.1.6",
+  "description": "Access your Phantom embedded wallet from Claude: get addresses, sign transactions, transfer tokens, and swap on Solana.",
+  "long_description": "The Phantom MCP server gives Claude direct access to Phantom embedded wallet operations. Authenticate once with Google or Apple, and Claude can:\n\n- **Get wallet addresses** across Solana, Ethereum, Bitcoin, and Sui\n- **Sign transactions** on any supported chain\n- **Transfer tokens** — SOL or any SPL token on Solana\n- **Swap tokens** — fetch quotes and execute swaps via Phantom's quotes API\n- **Sign messages** for authentication or proof-of-ownership flows\n\nUses OAuth + PKCE for secure authentication. Session is stored locally at `~/.phantom-mcp/session.json` and persists across restarts.",
+  "author": {
+    "name": "Phantom"
+  },
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/phantom/phantom-connect-sdk"
+  },
+  "homepage": "https://phantom.com",
+  "documentation": "https://github.com/phantom/phantom-connect-sdk/tree/main/packages/mcp-server#readme",
+  "support": "https://github.com/phantom/phantom-connect-sdk/issues",
+  "license": "MIT",
+  "keywords": ["phantom", "wallet", "solana", "ethereum", "crypto", "defi", "swap", "blockchain"],
+  "privacy_policies": ["https://phantom.com/privacy"],
+  "compatibility": {
+    "claude_desktop": ">=1.0.0",
+    "platforms": ["darwin", "win32"]
+  },
+  "server": {
+    "type": "node",
+    "entry_point": "dist/cli.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/dist/cli.js"],
+      "env": {
+        "PHANTOM_APP_ID": "${user_config.phantom_app_id}",
+        "PHANTOM_CLIENT_SECRET": "${user_config.phantom_client_secret}"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "get_wallet_addresses",
+      "description": "Gets all blockchain addresses for the authenticated embedded wallet (Solana, Ethereum, Bitcoin, Sui)"
+    },
+    {
+      "name": "sign_transaction",
+      "description": "Signs a transaction using the authenticated embedded wallet. Supports Solana, Ethereum, Bitcoin, and other chains."
+    },
+    {
+      "name": "sign_message",
+      "description": "Signs a UTF-8 message using the authenticated embedded wallet."
+    },
+    {
+      "name": "transfer_tokens",
+      "description": "Transfers SOL or SPL tokens on Solana. Builds, signs, and immediately broadcasts the transaction."
+    },
+    {
+      "name": "buy_token",
+      "description": "Fetches a Solana swap quote from the Phantom quotes API. Optionally signs and executes the swap."
+    }
+  ],
+  "user_config": {
+    "phantom_app_id": {
+      "type": "string",
+      "title": "App ID",
+      "description": "Your Phantom App ID from the Phantom Portal (phantom.com/portal). Required. The email you use to sign in to the Portal must match the email you authenticate with in Claude.",
+      "required": true
+    },
+    "phantom_client_secret": {
+      "type": "string",
+      "title": "Client Secret",
+      "description": "Optional client secret for confidential OAuth clients. Leave blank to use public client mode (recommended for most users).",
+      "required": false,
+      "sensitive": true
+    }
+  }
+}
