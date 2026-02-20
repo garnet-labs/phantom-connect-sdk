@@ -8,10 +8,12 @@
 
 import { PhantomClient } from "@phantom/client";
 import { ApiKeyStamper } from "@phantom/api-key-stamper";
+import { ANALYTICS_HEADERS, type ServerSdkHeaders } from "@phantom/constants";
 import { SessionStorage } from "./storage.js";
 import { OAuthFlow } from "../auth/oauth.js";
 import type { SessionData } from "./types.js";
 import { Logger } from "../utils/logger.js";
+import * as packageJson from "../../package.json";
 
 /**
  * Configuration options for SessionManager
@@ -56,6 +58,15 @@ export class SessionManager {
 
   private session: SessionData | null = null;
   private client: PhantomClient | null = null;
+
+  private createMcpAnalyticsHeaders(appId: string): ServerSdkHeaders {
+    return {
+      [ANALYTICS_HEADERS.SDK_TYPE]: "server",
+      [ANALYTICS_HEADERS.SDK_VERSION]: process.env.PHANTOM_VERSION ?? packageJson.version ?? "unknown",
+      [ANALYTICS_HEADERS.PLATFORM]: "mcp",
+      [ANALYTICS_HEADERS.APP_ID]: appId,
+    };
+  }
 
   private resolveAppId(): string {
     return process.env.PHANTOM_APP_ID || process.env.PHANTOM_CLIENT_ID || this.appId;
@@ -248,15 +259,15 @@ export class SessionManager {
     // Step 2: Get client ID for X-App-Id header
     const appId = this.session.appId || this.resolveAppId();
 
+    const headers = this.createMcpAnalyticsHeaders(appId);
+
     // Step 3: Create PhantomClient with stamper, organizationId, and headers
     this.client = new PhantomClient(
       {
         apiBaseUrl: this.apiBaseUrl,
         organizationId: this.session.organizationId,
         walletType: "user-wallet",
-        headers: {
-          "X-App-Id": appId,
-        } as any, // Type assertion needed as X-App-Id is not in SdkAnalyticsHeaders
+        headers,
       },
       stamper,
     );

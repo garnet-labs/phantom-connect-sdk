@@ -137,9 +137,12 @@ describe("SessionManager", () => {
           apiBaseUrl: "https://api.phantom.app/v1/wallets",
           organizationId: validSession.organizationId,
           walletType: "user-wallet",
-          headers: {
-            "X-App-Id": "phantom-mcp",
-          },
+          headers: expect.objectContaining({
+            "x-phantom-platform": "mcp",
+            "x-phantom-sdk-type": "server",
+            "x-phantom-sdk-version": expect.any(String),
+            "x-app-id": "phantom-mcp",
+          }),
         },
         expect.anything(),
       );
@@ -331,9 +334,12 @@ describe("SessionManager", () => {
           apiBaseUrl: "https://custom-api.example.com",
           organizationId: validSession.organizationId,
           walletType: "user-wallet",
-          headers: {
-            "X-App-Id": "phantom-mcp",
-          },
+          headers: expect.objectContaining({
+            "x-phantom-platform": "mcp",
+            "x-phantom-sdk-type": "server",
+            "x-phantom-sdk-version": expect.any(String),
+            "x-app-id": "phantom-mcp",
+          }),
         },
         expect.anything(),
       );

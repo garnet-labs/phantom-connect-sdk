@@ -1,5 +1,11 @@
 # @phantom/crypto
 
+## 1.0.3
+
+### Patch Changes
+
+- 5a57f30: Fix crypto support on android devices
+
 ## 1.0.2
 
 ### Patch Changes

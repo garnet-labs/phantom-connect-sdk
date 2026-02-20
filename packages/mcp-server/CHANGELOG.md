@@ -1,5 +1,19 @@
 # @phantom/mcp-server
 
+## 0.1.7
+
+### Patch Changes
+
+- 51a1786: Update headers
+- Updated dependencies [5a57f30]
+  - @phantom/api-key-stamper@1.0.3
+  - @phantom/base64url@1.0.3
+  - @phantom/client@1.0.3
+  - @phantom/constants@1.0.3
+  - @phantom/crypto@1.0.3
+  - @phantom/server-sdk@1.0.3
+  - @phantom/utils@1.0.3
+
 ## 0.1.6
 
 ### Patch Changes

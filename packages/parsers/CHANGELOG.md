@@ -1,5 +1,16 @@
 # @phantom/parsers
 
+## 1.0.3
+
+### Patch Changes
+
+- 5a57f30: Fix crypto support on android devices
+- Updated dependencies [5a57f30]
+  - @phantom/base64url@1.0.3
+  - @phantom/constants@1.0.3
+  - @phantom/sdk-types@1.0.3
+  - @phantom/utils@1.0.3
+
 ## 1.0.2
 
 ### Patch Changes
