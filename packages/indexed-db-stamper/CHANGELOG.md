@@ -1,5 +1,17 @@
 # @phantom/indexed-db-stamper
 
+## 1.0.4
+
+### Patch Changes
+
+- 2d00fb0: Do not throw error if one of the chains is not available on connection
+- Updated dependencies [2d00fb0]
+  - @phantom/base64url@1.0.4
+  - @phantom/constants@1.0.4
+  - @phantom/crypto@1.0.4
+  - @phantom/embedded-provider-core@1.0.4
+  - @phantom/sdk-types@1.0.4
+
 ## 1.0.3
 
 ### Patch Changes

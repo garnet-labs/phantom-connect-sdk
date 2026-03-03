@@ -1,5 +1,11 @@
 # @phantom/wallet-sdk-ui
 
+## 1.0.4
+
+### Patch Changes
+
+- 2d00fb0: Do not throw error if one of the chains is not available on connection
+
 ## 1.0.3
 
 ### Patch Changes
