@@ -52,7 +52,7 @@ function makeStamper(storageKey = `phantom-auth2-test-${Math.random()}`) {
 const STORED_PUBLIC_KEY_BASE58 =
   "MpEALt31ZMzbaFHHt4TUTZ8eT3vovb7Bv3SpZUWhCDGHnND2aSxmeXF6CeWagvBG3MEYvvzWiJrfm7oy15DupRex";
 
-function storedRecord(pkcs8Base64 = Buffer.from(MOCK_PKCS8).toString("base64")) {
+function storedRecord(extras: object = {}, pkcs8Base64 = Buffer.from(MOCK_PKCS8).toString("base64")) {
   return JSON.stringify({
     privateKeyPkcs8: pkcs8Base64,
     keyInfo: {
@@ -60,6 +60,7 @@ function storedRecord(pkcs8Base64 = Buffer.from(MOCK_PKCS8).toString("base64")) 
       publicKey: STORED_PUBLIC_KEY_BASE58,
       createdAt: 1_000_000,
     },
+    ...extras,
   });
 }
 
@@ -163,13 +164,65 @@ describe("ExpoAuth2Stamper", () => {
       const expected = Buffer.from(MOCK_DIGEST).toString("base64url").substring(0, 16);
       expect(keyInfo.keyId).toBe(expected);
     });
+
+    it("restores the id token from SecureStore on init()", async () => {
+      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord({ idToken: "persisted-token" }));
+
+      const stamper = makeStamper();
+      await stamper.init();
+
+      // stamp() should succeed without any additional setIdToken call.
+      await expect(stamper.stamp({ type: "OIDC", data: Buffer.from("payload") })).resolves.toBeTruthy();
+    });
+  });
+
+  describe("setIdToken()", () => {
+    it("makes stamp() succeed after being called", async () => {
+      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(null);
+
+      const stamper = makeStamper();
+      await stamper.init();
+
+      // setIdToken reads the existing record to merge — return it
+      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord());
+      await stamper.setIdToken("my-token");
+
+      await expect(stamper.stamp({ type: "OIDC", data: Buffer.from("payload") })).resolves.toBeTruthy();
+    });
+
+    it("persists the token to SecureStore alongside the key record", async () => {
+      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(null);
+      const storageKey = "phantom-auth2-persist-test";
+      const stamper = new ExpoAuth2Stamper(storageKey);
+      await stamper.init();
+
+      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord());
+      await stamper.setIdToken("token-x");
+
+      const lastSaveCall = (SecureStore.setItemAsync as jest.Mock).mock.calls.at(-1) as [string, string];
+      const saved = JSON.parse(lastSaveCall[1]) as { idToken?: string };
+      expect(saved.idToken).toBe("token-x");
+    });
+
+    it("restores token in stamp output after a reload", async () => {
+      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord({ idToken: "reload-token" }));
+
+      const stamper = makeStamper();
+      await stamper.init();
+
+      const stampStr = await stamper.stamp({ type: "OIDC", data: Buffer.from("payload") });
+      const decoded = JSON.parse(Buffer.from(stampStr, "base64url").toString()) as {
+        idToken: string;
+      };
+      expect(decoded.idToken).toBe("reload-token");
+    });
   });
 
   describe("stamp()", () => {
     it("throws if called before init()", async () => {
       const stamper = makeStamper();
 
-      await expect(stamper.stamp({ data: Buffer.from("x") })).rejects.toThrow("not initialized");
+      await expect(stamper.stamp({ type: "OIDC", data: Buffer.from("x") })).rejects.toThrow("not initialized");
     });
 
     it("signs with ECDSA P-256 / SHA-256", async () => {
@@ -177,10 +230,10 @@ describe("ExpoAuth2Stamper", () => {
 
       const stamper = makeStamper();
       await stamper.init();
-      stamper.idToken = "";
-      stamper.salt = "";
+      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord());
+      await stamper.setIdToken("");
 
-      await stamper.stamp({ data: Buffer.from("payload") });
+      await stamper.stamp({ type: "OIDC", data: Buffer.from("payload") });
 
       expect(mockSubtle.sign).toHaveBeenCalledWith(
         { name: "ECDSA", hash: "SHA-256" },
@@ -189,24 +242,24 @@ describe("ExpoAuth2Stamper", () => {
       );
     });
 
-    it("throws when called without idToken and salt set", async () => {
+    it("throws when called before setIdToken()", async () => {
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(null);
 
       const stamper = makeStamper();
       await stamper.init();
 
-      await expect(stamper.stamp({ data: Buffer.from("msg") })).rejects.toThrow("not initialized with idToken or salt");
+      await expect(stamper.stamp({ type: "OIDC", data: Buffer.from("msg") })).rejects.toThrow("not initialized");
     });
 
-    it("returns an OIDC stamp when stamper.idToken and stamper.salt are set", async () => {
+    it("returns an OIDC stamp with the id token from setIdToken()", async () => {
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(null);
 
       const stamper = makeStamper();
       await stamper.init();
-      stamper.idToken = "rn-id-token";
-      stamper.salt = "rn-salt";
+      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord());
+      await stamper.setIdToken("rn-id-token");
 
-      const stampStr = await stamper.stamp({ data: Buffer.from("payload") });
+      const stampStr = await stamper.stamp({ type: "OIDC", data: Buffer.from("payload") });
       const decoded = JSON.parse(Buffer.from(stampStr, "base64url").toString()) as {
         kind: string;
         idToken: string;
@@ -219,21 +272,9 @@ describe("ExpoAuth2Stamper", () => {
       expect(decoded.kind).toBe("OIDC");
       expect(decoded.idToken).toBe("rn-id-token");
       expect(decoded.algorithm).toBe("Secp256r1");
-      expect(decoded.salt).toBe("rn-salt");
+      expect(decoded.salt).toBe("");
       expect(typeof decoded.publicKey).toBe("string");
       expect(typeof decoded.signature).toBe("string");
-    });
-
-    it("throws when only idToken is set (salt is undefined)", async () => {
-      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(null);
-
-      const stamper = makeStamper();
-      await stamper.init();
-      stamper.idToken = "token-without-salt";
-
-      await expect(stamper.stamp({ data: Buffer.from("data") })).rejects.toThrow(
-        "not initialized with idToken or salt",
-      );
     });
 
     it("public key in stamp is base64url of the raw P-256 bytes", async () => {
@@ -241,10 +282,10 @@ describe("ExpoAuth2Stamper", () => {
 
       const stamper = makeStamper();
       await stamper.init();
-      stamper.idToken = "";
-      stamper.salt = "";
+      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord());
+      await stamper.setIdToken("");
 
-      const stampStr = await stamper.stamp({ data: Buffer.from("x") });
+      const stampStr = await stamper.stamp({ type: "OIDC", data: Buffer.from("x") });
       const decoded = JSON.parse(Buffer.from(stampStr, "base64url").toString()) as { publicKey: string };
       expect(decoded.publicKey).toBe(Buffer.from(MOCK_RAW_PUBLIC_KEY).toString("base64url"));
     });
@@ -277,6 +318,19 @@ describe("ExpoAuth2Stamper", () => {
       await stamper.resetKeyPair();
 
       expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith(storageKey);
+    });
+
+    it("clears the id token", async () => {
+      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(null);
+
+      const stamper = makeStamper();
+      await stamper.init();
+      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord());
+      await stamper.setIdToken("t");
+
+      await stamper.resetKeyPair();
+
+      await expect(stamper.stamp({ type: "OIDC", data: Buffer.from("x") })).rejects.toThrow("not initialized");
     });
   });
 
@@ -317,7 +371,7 @@ describe("ExpoAuth2Stamper", () => {
       await stamper.init();
       await stamper.clear();
 
-      await expect(stamper.stamp({ data: Buffer.from("x") })).rejects.toThrow("not initialized");
+      await expect(stamper.stamp({ type: "OIDC", data: Buffer.from("x") })).rejects.toThrow("not initialized");
     });
   });
 

@@ -9,7 +9,6 @@ import type {
 import type { StamperWithKeyManagement } from "@phantom/sdk-types";
 import {
   createCodeVerifier,
-  createSalt,
   createConnectStartUrl,
   exchangeAuthCode,
   Auth2KmsRpcClient,
@@ -20,8 +19,7 @@ import {
 /** Stampers used with Auth2 must be able to expose their CryptoKeyPair for JAR signing. */
 interface Auth2StamperLike extends StamperWithKeyManagement {
   getCryptoKeyPair(): CryptoKeyPair | null;
-  idToken?: string;
-  salt?: string;
+  setIdToken(idToken: string): Promise<void>;
 }
 
 export class Auth2AuthProvider implements AuthProvider {
@@ -49,8 +47,8 @@ export class Auth2AuthProvider implements AuthProvider {
    *
    * Called by EmbeddedProvider.handleRedirectAuth() after the stamper has
    * already been initialized and a pending Session has been saved to storage.
-   * We store the PKCE code_verifier and salt into that session so they survive
-   * the page redirect without ever touching sessionStorage.
+   * We store the PKCE code_verifier into that session so it survives the page
+   * redirect without ever touching sessionStorage.
    */
   async authenticate(options: PhantomConnectOptions): Promise<void> {
     // Ensure the stamper has an active key loaded (may already be initialized).
@@ -64,15 +62,14 @@ export class Auth2AuthProvider implements AuthProvider {
     }
 
     const codeVerifier = createCodeVerifier();
-    const salt = createSalt();
 
-    // Persist the code_verifier and salt into the already-saved pending session.
+    // Persist the code_verifier into the already-saved pending session.
     const session = await this.storage.getSession();
     if (!session) {
       throw new Error("Session not found.");
     }
 
-    await this.storage.saveSession({ ...session, pkceCodeVerifier: codeVerifier, salt });
+    await this.storage.saveSession({ ...session, pkceCodeVerifier: codeVerifier });
 
     const url = await createConnectStartUrl({
       keyPair,
@@ -82,7 +79,8 @@ export class Auth2AuthProvider implements AuthProvider {
       sessionId: options.sessionId,
       provider: options.provider,
       codeVerifier,
-      salt,
+      // The P-256 ephemeral key is unique per wallet, so no additional salt is needed.
+      salt: "",
     });
 
     Auth2AuthProvider.navigate(url);
@@ -136,10 +134,9 @@ export class Auth2AuthProvider implements AuthProvider {
       codeVerifier,
     });
 
-    // Arm the stamper for OIDC stamps on subsequent KMS requests.
-    // TODO: Improve dependency injection to avoid setting these properties directly.
-    this.stamper.idToken = idToken;
-    this.stamper.salt = session?.salt;
+    // Arm the stamper with the id token for KMS requests.
+    // Persisted to IndexedDB so auto-connect can restore it on the next page load.
+    await this.stamper.setIdToken(idToken);
 
     // Persist the bearer token into the session — EmbeddedProvider will read it
     // in initializeClientFromSession() and inject it as the Authorization header.
@@ -149,7 +146,6 @@ export class Auth2AuthProvider implements AuthProvider {
       bearerToken,
       authUserId,
       pkceCodeVerifier: undefined, // no longer needed after code exchange
-      salt: undefined, // no longer needed after nonce binding is complete
     });
 
     const { organizationId, walletId } = await this.kms.discoverOrganizationAndWalletId(bearerToken, authUserId);

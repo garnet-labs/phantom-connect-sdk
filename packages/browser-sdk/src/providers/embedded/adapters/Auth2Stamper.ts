@@ -7,15 +7,21 @@ import type { Buffer } from "buffer";
 const STORE_NAME = "crypto-keys";
 const ACTIVE_KEY = "auth2-p256-signing-key";
 
+interface StoredRecord {
+  keyPair: CryptoKeyPair;
+  keyInfo: StamperKeyInfo;
+  /** Persisted so that auto-connect can restore OIDC stamping without a new login. */
+  idToken?: string;
+}
+
 export class Auth2Stamper implements StamperWithKeyManagement {
   private db: IDBDatabase | null = null;
-  private keyPair: CryptoKeyPair | null = null;
+  private _keyPair: CryptoKeyPair | null = null;
   private _keyInfo: StamperKeyInfo | null = null;
+  private _idToken: string | null = null;
 
   readonly algorithm: Algorithm = Algorithm.secp256r1;
-  type: "PKI" | "OIDC" = "PKI";
-  idToken?: string;
-  salt?: string;
+  readonly type = "OIDC";
 
   /**
    * @param dbName - IndexedDB database name (use a unique name per app to
@@ -26,10 +32,13 @@ export class Auth2Stamper implements StamperWithKeyManagement {
   async init(): Promise<StamperKeyInfo> {
     await this.openDB();
 
-    const stored = await this.loadKeyPair();
+    const stored = await this.loadRecord();
     if (stored) {
-      this.keyPair = stored.keyPair;
+      this._keyPair = stored.keyPair;
       this._keyInfo = stored.keyInfo;
+      if (stored.idToken) {
+        this._idToken = stored.idToken;
+      }
       return this._keyInfo;
     }
 
@@ -41,36 +50,48 @@ export class Auth2Stamper implements StamperWithKeyManagement {
   }
 
   getCryptoKeyPair(): CryptoKeyPair | null {
-    return this.keyPair;
+    return this._keyPair;
   }
 
-  async stamp(
-    params:
-      | { data: Buffer; type?: "PKI"; idToken?: never; salt?: never }
-      | { data: Buffer; type: "OIDC"; idToken: string; salt: string },
-  ): Promise<string> {
-    if (!this.keyPair || !this._keyInfo) {
+  /**
+   * Arms the stamper with the OIDC id token for subsequent KMS stamp() calls.
+   *
+   * Persists the token to IndexedDB alongside the key pair so that
+   * auto-connect can restore it on the next page load without a new login.
+   */
+  async setIdToken(idToken: string): Promise<void> {
+    if (!this.db) {
+      await this.openDB();
+    }
+
+    this._idToken = idToken;
+
+    const existing = await this.loadRecord();
+    if (existing) {
+      await this.storeRecord({ ...existing, idToken });
+    }
+  }
+
+  async stamp(params: { data: Buffer; type?: "PKI" } | { data: Buffer; type: "OIDC" }): Promise<string> {
+    if (!this._keyPair || !this._keyInfo || this._idToken === null) {
       throw new Error("Auth2Stamper not initialized. Call init() first.");
     }
 
     const signatureRaw = await crypto.subtle.sign(
       { name: "ECDSA", hash: "SHA-256" },
-      this.keyPair.privateKey,
+      this._keyPair.privateKey,
       new Uint8Array(params.data) as BufferSource,
     );
 
     const rawPublicKey = bs58.decode(this._keyInfo.publicKey);
 
-    if (this.idToken === undefined || this.salt === undefined) {
-      throw new Error("Auth2Stamper not initialized with idToken or salt.");
-    }
-
     const stampData = {
-      kind: "OIDC" as const,
-      idToken: this.idToken,
+      kind: this.type,
+      idToken: this._idToken,
       publicKey: base64urlEncode(rawPublicKey),
-      algorithm: "Secp256r1" as const,
-      salt: this.salt,
+      algorithm: this.algorithm,
+      // The P-256 ephemeral key is unique per wallet, so no additional salt is needed.
+      salt: "",
       signature: base64urlEncode(new Uint8Array(signatureRaw)),
     };
 
@@ -78,16 +99,15 @@ export class Auth2Stamper implements StamperWithKeyManagement {
   }
 
   async resetKeyPair(): Promise<StamperKeyInfo> {
-    await this.clearStoredKey();
-    this.keyPair = null;
-    this._keyInfo = null;
+    await this.clear();
     return this.generateAndStore();
   }
 
   async clear(): Promise<void> {
-    await this.clearStoredKey();
-    this.keyPair = null;
+    await this.clearStoredRecord();
+    this._keyPair = null;
     this._keyInfo = null;
+    this._idToken = null;
   }
 
   // Auth2 doesn't use key rotation; provide minimal no-op implementations.
@@ -121,14 +141,14 @@ export class Auth2Stamper implements StamperWithKeyManagement {
     const keyIdBuffer = await crypto.subtle.digest("SHA-256", rawPublicKey.buffer as ArrayBuffer);
     const keyId = base64urlEncode(new Uint8Array(keyIdBuffer)).substring(0, 16);
 
-    this.keyPair = keyPair;
+    this._keyPair = keyPair;
     this._keyInfo = {
       keyId,
       publicKey: publicKeyBase58,
       createdAt: Date.now(),
     };
 
-    await this.storeKeyPair(keyPair, this._keyInfo);
+    await this.storeRecord({ keyPair, keyInfo: this._keyInfo });
     return this._keyInfo;
   }
 
@@ -151,8 +171,8 @@ export class Auth2Stamper implements StamperWithKeyManagement {
     });
   }
 
-  private async loadKeyPair(): Promise<{ keyPair: CryptoKeyPair; keyInfo: StamperKeyInfo } | null> {
-    return new Promise<{ keyPair: CryptoKeyPair; keyInfo: StamperKeyInfo } | null>((resolve, reject): void => {
+  private async loadRecord(): Promise<StoredRecord | null> {
+    return new Promise<StoredRecord | null>((resolve, reject): void => {
       if (!this.db) {
         throw new Error("Database not initialized");
       }
@@ -168,16 +188,13 @@ export class Auth2Stamper implements StamperWithKeyManagement {
     });
   }
 
-  private async storeKeyPair(keyPair: CryptoKeyPair, keyInfo: StamperKeyInfo): Promise<void> {
+  private async storeRecord(record: StoredRecord): Promise<void> {
     return new Promise<void>((resolve, reject): void => {
       if (!this.db) {
         throw new Error("Database not initialized");
       }
 
-      const request = this.db
-        .transaction([STORE_NAME], "readwrite")
-        .objectStore(STORE_NAME)
-        .put({ keyPair, keyInfo }, ACTIVE_KEY);
+      const request = this.db.transaction([STORE_NAME], "readwrite").objectStore(STORE_NAME).put(record, ACTIVE_KEY);
       request.onsuccess = (): void => {
         resolve();
       };
@@ -187,7 +204,7 @@ export class Auth2Stamper implements StamperWithKeyManagement {
     });
   }
 
-  private async clearStoredKey(): Promise<void> {
+  private async clearStoredRecord(): Promise<void> {
     return new Promise<void>((resolve, reject): void => {
       if (!this.db) {
         throw new Error("Database not initialized");

@@ -7,7 +7,6 @@ const mockCreateConnectStartUrl = jest
 
 jest.mock("@phantom/auth2", () => ({
   createCodeVerifier: jest.fn().mockReturnValue("test-code-verifier"),
-  createSalt: jest.fn().mockReturnValue("test-salt"),
   createConnectStartUrl: mockCreateConnectStartUrl,
   exchangeAuthCode: jest.fn().mockResolvedValue({
     idToken: "id-token-value",
@@ -23,7 +22,7 @@ jest.mock("@phantom/auth2", () => ({
 import type { StamperWithKeyManagement } from "@phantom/sdk-types";
 import type { EmbeddedStorage, URLParamsAccessor } from "@phantom/embedded-provider-core";
 import { Auth2AuthProvider } from "./Auth2AuthProvider";
-import { createCodeVerifier, createSalt, createConnectStartUrl, exchangeAuthCode } from "@phantom/auth2";
+import { createCodeVerifier, createConnectStartUrl, exchangeAuthCode } from "@phantom/auth2";
 
 type TestSession = {
   sessionId: string;
@@ -77,6 +76,7 @@ function makeStamper(initialized = true) {
       publicKey: "7EcDshMsTHCs2f2HU2a3n36x9JkEVVenF9oQQGy5U3s",
       createdAt: Date.now(),
     }),
+    setIdToken: jest.fn().mockResolvedValue(undefined),
     rotateKeyPair: jest.fn(),
     commitRotation: jest.fn(),
     rollbackRotation: jest.fn(),
@@ -84,8 +84,6 @@ function makeStamper(initialized = true) {
     clear: jest.fn(),
     algorithm: "ECDSA_P256",
     type: "OIDC" as "PKI" | "OIDC",
-    idToken: undefined as string | undefined,
-    salt: undefined as string | undefined,
   };
 }
 
@@ -140,13 +138,7 @@ describe("Auth2AuthProvider.authenticate()", () => {
     expect(createCodeVerifier).toHaveBeenCalled();
   });
 
-  it("creates a per-session salt", async () => {
-    await makeProvider().authenticate(connectOptions);
-
-    expect(createSalt).toHaveBeenCalled();
-  });
-
-  it("calls createConnectStartUrl with the correct options including salt", async () => {
+  it("calls createConnectStartUrl with the correct options", async () => {
     await makeProvider().authenticate(connectOptions);
 
     expect(createConnectStartUrl).toHaveBeenCalledWith(
@@ -158,19 +150,19 @@ describe("Auth2AuthProvider.authenticate()", () => {
         sessionId: connectOptions.sessionId,
         provider: connectOptions.provider,
         codeVerifier: "test-code-verifier",
-        salt: "test-salt",
+        salt: "",
       }),
     );
   });
 
-  it("saves pkceCodeVerifier and salt into the existing session", async () => {
+  it("saves pkceCodeVerifier into the existing session", async () => {
     const session: TestSession = { sessionId: "session-id-1" };
     const storage = makeStorage(session);
 
     await makeProvider(storage).authenticate(connectOptions);
 
     expect(storage.saveSession).toHaveBeenCalledWith(
-      expect.objectContaining({ pkceCodeVerifier: "test-code-verifier", salt: "test-salt" }),
+      expect.objectContaining({ pkceCodeVerifier: "test-code-verifier" }),
     );
   });
 
@@ -243,7 +235,6 @@ describe("Auth2AuthProvider.resumeAuthFromRedirect()", () => {
   const SESSION: TestSession = {
     sessionId: "session-abc",
     pkceCodeVerifier: "verifier-xyz",
-    salt: "session-salt",
   };
 
   function makeSuccessProvider() {
@@ -331,7 +322,7 @@ describe("Auth2AuthProvider.resumeAuthFromRedirect()", () => {
     });
   });
 
-  it("saves bearerToken, authUserId, status=completed to the session and clears pkceCodeVerifier and salt", async () => {
+  it("saves bearerToken, authUserId, status=completed to the session and clears pkceCodeVerifier", async () => {
     const storage = makeStorage({ ...SESSION });
     const provider = makeProvider(storage, makeUrlParams({ code: "c", state: "session-abc" }));
 
@@ -342,13 +333,12 @@ describe("Auth2AuthProvider.resumeAuthFromRedirect()", () => {
         bearerToken: "Bearer id-token-value",
         authUserId: "auth-user-1",
         pkceCodeVerifier: undefined,
-        salt: undefined,
         status: "completed",
       }),
     );
   });
 
-  it("sets stamper.idToken and stamper.salt after successful token exchange", async () => {
+  it("calls setIdToken with the idToken after successful token exchange", async () => {
     const stamper = makeStamper(true);
     const provider = makeProvider(
       makeStorage({ ...SESSION }),
@@ -358,23 +348,7 @@ describe("Auth2AuthProvider.resumeAuthFromRedirect()", () => {
 
     await provider.resumeAuthFromRedirect("google");
 
-    expect(stamper.idToken).toBe("id-token-value");
-    expect(stamper.salt).toBe("session-salt");
-  });
-
-  it("sets stamper.salt to undefined when session has no salt", async () => {
-    const stamper = makeStamper(true);
-    const sessionWithoutSalt: TestSession = { sessionId: "session-abc", pkceCodeVerifier: "verifier-xyz" };
-    const provider = makeProvider(
-      makeStorage(sessionWithoutSalt),
-      makeUrlParams({ code: "c", state: "session-abc" }),
-      stamper,
-    );
-
-    await provider.resumeAuthFromRedirect("google");
-
-    expect(stamper.idToken).toBe("id-token-value"); // always set after token exchange
-    expect(stamper.salt).toBeUndefined();
+    expect(stamper.setIdToken).toHaveBeenCalledWith("id-token-value");
   });
 
   it("returns a complete AuthResult on success", async () => {

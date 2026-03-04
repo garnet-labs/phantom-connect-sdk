@@ -137,47 +137,63 @@ describe("createConnectStartUrl", () => {
     expect(url.origin + url.pathname).toBe("https://auth.example.com/login/start");
   });
 
-  it("sets client_id, redirect_uri, response_type, scope, state in search params", async () => {
+  /** Decodes the JAR payload from a createConnectStartUrl result. */
+  function decodeJarPayload(result: string): Record<string, unknown> {
+    const url = new URL(result);
+    const hashParams = new URLSearchParams(url.hash.slice(1));
+    const jar = hashParams.get("jar")!;
+    const parts = jar.split(".");
+    return JSON.parse(Buffer.from(parts[1], "base64url").toString()) as Record<string, unknown>;
+  }
+
+  it("has no query parameters", async () => {
     const result = await createConnectStartUrl(baseInput);
 
-    const url = new URL(result);
-    expect(url.searchParams.get("client_id")).toBe("my-client");
-    expect(url.searchParams.get("redirect_uri")).toBe("https://app.example.com/callback");
-    expect(url.searchParams.get("response_type")).toBe("code");
-    expect(url.searchParams.get("scope")).toBe("openid");
-    expect(url.searchParams.get("state")).toBe("session-xyz");
-    expect(url.searchParams.get("code_challenge_method")).toBe("S256");
+    expect(new URL(result).search).toBe("");
   });
 
-  it("sets nonce and code_challenge in search params", async () => {
+  it("encodes all required fields in the JAR payload", async () => {
     const result = await createConnectStartUrl(baseInput);
 
-    const url = new URL(result);
-    expect(url.searchParams.get("nonce")).toBeTruthy();
-    expect(url.searchParams.get("code_challenge")).toBeTruthy();
+    const payload = decodeJarPayload(result);
+
+    expect(payload).toEqual({
+      aud: "https://auth.example.com/login/start",
+      iat: expect.any(Number),
+      exp: expect.any(Number),
+      client_id: "my-client",
+      redirect_uri: "https://app.example.com/callback",
+      scope: "openid",
+      nonce: expect.any(String),
+      code_challenge: expect.any(String),
+      code_challenge_method: "S256",
+      state: "session-xyz",
+      login_hint: "google:auth2",
+    });
   });
 
-  it("adds login_hint for non-phantom/non-device provider", async () => {
+  it("adds login_hint in the JAR payload for non-phantom/non-device provider", async () => {
     const result = await createConnectStartUrl({ ...baseInput, provider: "google" });
 
-    expect(new URL(result).searchParams.get("login_hint")).toBe("google:auth2");
+    expect(decodeJarPayload(result).login_hint).toBe("google:auth2");
   });
 
-  it("adds login_hint for apple provider", async () => {
+  it("adds login_hint in the JAR payload for apple provider", async () => {
     const result = await createConnectStartUrl({ ...baseInput, provider: "apple" });
 
-    expect(new URL(result).searchParams.get("login_hint")).toBe("apple:auth2");
+    expect(decodeJarPayload(result).login_hint).toBe("apple:auth2");
   });
 
-  it("omits login_hint for phantom provider", async () => {
+  it("omits login_hint from JAR payload for phantom provider", async () => {
     const result = await createConnectStartUrl({ ...baseInput, provider: "phantom" });
 
-    expect(new URL(result).searchParams.has("login_hint")).toBe(false);
+    expect(decodeJarPayload(result).login_hint).toBeUndefined();
   });
 
-  it("omits login_hint for device provider", async () => {
+  it("omits login_hint from JAR payload for device provider", async () => {
     const result = await createConnectStartUrl({ ...baseInput, provider: "device" });
-    expect(new URL(result).searchParams.has("login_hint")).toBe(false);
+
+    expect(decodeJarPayload(result).login_hint).toBeUndefined();
   });
 
   it("embeds the JAR in the URL hash as jar=<token>", async () => {

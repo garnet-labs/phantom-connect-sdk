@@ -253,15 +253,15 @@ describe("ExpoAuth2 React Native flow — end-to-end", () => {
     expect(WebBrowser.coolDownAsync).toHaveBeenCalled();
   });
 
-  it("stamp output produced after auth contains OIDC kind with idToken, algorithm, and salt", async () => {
-    // After authenticate(), the provider sets stamper.idToken and stamper.salt,
+  it("stamp output produced after auth contains OIDC kind with idToken and algorithm", async () => {
+    // After authenticate(), the provider calls setIdToken() on the stamper,
     // so subsequent stamps use OIDC format.
     const stamper = new ExpoAuth2Stamper("phantom-auth2-stamp-int");
     const provider = makeProvider(stamper);
     await provider.authenticate(CONNECT_OPTIONS);
 
-    // Stamper is now armed with OIDC credentials; produce a direct stamp.
-    const stampStr = await stamper.stamp({ data: Buffer.from("integration-payload") });
+    // Stamper is now armed with the id token; produce a direct stamp.
+    const stampStr = await stamper.stamp({ type: "OIDC", data: Buffer.from("integration-payload") });
     const decoded = JSON.parse(Buffer.from(stampStr, "base64url").toString()) as {
       kind: string;
       idToken: string;
@@ -274,7 +274,7 @@ describe("ExpoAuth2 React Native flow — end-to-end", () => {
     expect(decoded.kind).toBe("OIDC");
     expect(decoded.idToken).toBe("rn-int-id-token");
     expect(decoded.algorithm).toBe("Secp256r1");
-    expect(typeof decoded.salt).toBe("string");
+    expect(decoded.salt).toBe("");
     expect(typeof decoded.publicKey).toBe("string");
     expect(typeof decoded.signature).toBe("string");
   });

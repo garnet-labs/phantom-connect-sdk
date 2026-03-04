@@ -8,17 +8,17 @@ import type { StamperWithKeyManagement, StamperKeyInfo } from "@phantom/sdk-type
 interface StoredKeyRecord {
   privateKeyPkcs8: string;
   keyInfo: StamperKeyInfo;
+  /** Persisted so that auto-connect can restore OIDC stamping without a new login. */
+  idToken?: string;
 }
 
 export class ExpoAuth2Stamper implements StamperWithKeyManagement {
-  private privateKey: CryptoKey | null = null;
-  private publicKey: CryptoKey | null = null;
+  private _keyPair: CryptoKeyPair | null = null;
   private _keyInfo: StamperKeyInfo | null = null;
+  private _idToken: string | null = null;
 
   readonly algorithm: Algorithm = Algorithm.secp256r1;
-  type: "PKI" | "OIDC" = "OIDC";
-  idToken?: string;
-  salt?: string;
+  readonly type = "OIDC";
 
   /**
    * @param storageKey - expo-secure-store key used to persist the P-256 private key.
@@ -29,9 +29,14 @@ export class ExpoAuth2Stamper implements StamperWithKeyManagement {
   async init(): Promise<StamperKeyInfo> {
     const stored = await this.loadRecord();
     if (stored) {
-      this.privateKey = await this.importPrivateKey(stored.privateKeyPkcs8);
-      this.publicKey = await this.importPublicKeyFromBase58(stored.keyInfo.publicKey);
+      this._keyPair = {
+        privateKey: await this.importPrivateKey(stored.privateKeyPkcs8),
+        publicKey: await this.importPublicKeyFromBase58(stored.keyInfo.publicKey),
+      };
       this._keyInfo = stored.keyInfo;
+      if (stored.idToken) {
+        this._idToken = stored.idToken;
+      }
       return this._keyInfo;
     }
 
@@ -43,37 +48,44 @@ export class ExpoAuth2Stamper implements StamperWithKeyManagement {
   }
 
   getCryptoKeyPair(): CryptoKeyPair | null {
-    if (!this.privateKey || !this.publicKey) return null;
-    return { privateKey: this.privateKey, publicKey: this.publicKey };
+    return this._keyPair;
   }
 
-  async stamp(
-    params:
-      | { data: Buffer; type?: "PKI"; idToken?: never; salt?: never }
-      | { data: Buffer; type: "OIDC"; idToken: string; salt: string },
-  ): Promise<string> {
-    if (!this.privateKey || !this._keyInfo) {
+  /**
+   * Arms the stamper with the OIDC id token for subsequent KMS stamp() calls.
+   *
+   * Persists the token to SecureStore alongside the key pair so that
+   * auto-connect can restore it on the next app launch without a new login.
+   */
+  async setIdToken(idToken: string): Promise<void> {
+    this._idToken = idToken;
+
+    const existing = await this.loadRecord();
+    if (existing) {
+      await this.storeRecord({ ...existing, idToken });
+    }
+  }
+
+  async stamp(params: { data: Buffer; type?: "PKI" } | { data: Buffer; type: "OIDC" }): Promise<string> {
+    if (!this._keyPair || !this._keyInfo || this._idToken === null) {
       throw new Error("ExpoAuth2Stamper not initialized. Call init() first.");
     }
 
     const signatureRaw = await crypto.subtle.sign(
       { name: "ECDSA", hash: "SHA-256" },
-      this.privateKey,
+      this._keyPair.privateKey,
       new Uint8Array(params.data) as BufferSource,
     );
 
     const rawPublicKey = bs58.decode(this._keyInfo.publicKey);
 
-    if (this.idToken === undefined || this.salt === undefined) {
-      throw new Error("ExpoAuth2Stamper not initialized with idToken or salt.");
-    }
-
     const stampData = {
-      kind: "OIDC" as const,
-      idToken: this.idToken,
+      kind: this.type,
+      idToken: this._idToken,
       publicKey: base64urlEncode(rawPublicKey),
-      algorithm: "Secp256r1" as const,
-      salt: this.salt,
+      algorithm: this.algorithm,
+      // The P-256 ephemeral key is unique per wallet, so no additional salt is needed.
+      salt: "",
       signature: base64urlEncode(new Uint8Array(signatureRaw)),
     };
 
@@ -81,18 +93,15 @@ export class ExpoAuth2Stamper implements StamperWithKeyManagement {
   }
 
   async resetKeyPair(): Promise<StamperKeyInfo> {
-    await this.clearStoredRecord();
-    this.privateKey = null;
-    this.publicKey = null;
-    this._keyInfo = null;
+    await this.clear();
     return this.generateAndStore();
   }
 
   async clear(): Promise<void> {
     await this.clearStoredRecord();
-    this.privateKey = null;
-    this.publicKey = null;
+    this._keyPair = null;
     this._keyInfo = null;
+    this._idToken = null;
   }
 
   // Auth2 doesn't use key rotation; minimal no-op implementations.
@@ -126,22 +135,14 @@ export class ExpoAuth2Stamper implements StamperWithKeyManagement {
     const keyIdBuffer = await crypto.subtle.digest("SHA-256", rawPublicKey.buffer as ArrayBuffer);
     const keyId = base64urlEncode(new Uint8Array(keyIdBuffer)).substring(0, 16);
 
+    this._keyPair = keyPair;
     this._keyInfo = { keyId, publicKey: publicKeyBase58, createdAt: Date.now() };
 
     // Export the private key as PKCS#8 for persistent storage.
     const pkcs8Buffer = await crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
     const privateKeyPkcs8 = Buffer.from(pkcs8Buffer).toString("base64");
 
-    await SecureStore.setItemAsync(
-      this.storageKey,
-      JSON.stringify({ privateKeyPkcs8, keyInfo: this._keyInfo } satisfies StoredKeyRecord),
-      { requireAuthentication: false },
-    );
-
-    // Hold both keys in memory for the session.
-    this.privateKey = await this.importPrivateKey(privateKeyPkcs8);
-    this.publicKey = keyPair.publicKey;
-
+    await this.storeRecord({ privateKeyPkcs8, keyInfo: this._keyInfo });
     return this._keyInfo;
   }
 
@@ -174,6 +175,10 @@ export class ExpoAuth2Stamper implements StamperWithKeyManagement {
     } catch {
       return null;
     }
+  }
+
+  private async storeRecord(record: StoredKeyRecord): Promise<void> {
+    await SecureStore.setItemAsync(this.storageKey, JSON.stringify(record), { requireAuthentication: false });
   }
 
   private async clearStoredRecord(): Promise<void> {

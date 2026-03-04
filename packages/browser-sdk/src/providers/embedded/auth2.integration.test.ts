@@ -226,21 +226,18 @@ describe("Auth2 browser flow — end-to-end", () => {
     expect(mockSubtle.generateKey).toHaveBeenCalledTimes(1);
   });
 
-  it("stamp() throws before OIDC props are set; produces OIDC stamp after idToken and salt are set", async () => {
+  it("stamp() throws before setIdToken(); produces OIDC stamp after the id token is set", async () => {
     const dbName = `stamp-db-${Date.now()}`;
     const stamper = new Auth2Stamper(dbName);
     const keyInfo = await stamper.init();
     expect(keyInfo.publicKey).toBeTruthy();
 
-    // Without idToken/salt, stamp() must throw.
-    await expect(stamper.stamp({ data: Buffer.from("test-payload") })).rejects.toThrow(
-      "not initialized with idToken or salt",
-    );
+    // Without the id token, stamp() must throw.
+    await expect(stamper.stamp({ type: "OIDC", data: Buffer.from("test-payload") })).rejects.toThrow("not initialized");
 
-    // After setting OIDC props, stamp() produces an OIDC envelope.
-    stamper.idToken = "integration-id-token";
-    stamper.salt = "";
-    const stampStr = await stamper.stamp({ data: Buffer.from("test-payload") });
+    // After setting the id token, stamp() produces an OIDC envelope.
+    await stamper.setIdToken("integration-id-token");
+    const stampStr = await stamper.stamp({ type: "OIDC", data: Buffer.from("test-payload") });
     const decoded = JSON.parse(Buffer.from(stampStr, "base64url").toString()) as {
       kind: string;
       publicKey: string;

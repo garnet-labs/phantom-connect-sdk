@@ -3,7 +3,6 @@ import type { AuthProvider, AuthResult, PhantomConnectOptions } from "@phantom/e
 import type { StamperWithKeyManagement } from "@phantom/sdk-types";
 import {
   createCodeVerifier,
-  createSalt,
   exchangeAuthCode,
   Auth2KmsRpcClient,
   type Auth2AuthProviderOptions,
@@ -14,8 +13,7 @@ import {
 /** Stampers used with Auth2 must be able to expose their CryptoKeyPair for JAR signing. */
 interface Auth2StamperLike extends StamperWithKeyManagement {
   getCryptoKeyPair(): CryptoKeyPair | null;
-  idToken?: string;
-  salt?: string;
+  setIdToken(idToken: string): Promise<void>;
 }
 
 export class ExpoAuth2AuthProvider implements AuthProvider {
@@ -50,7 +48,6 @@ export class ExpoAuth2AuthProvider implements AuthProvider {
     }
 
     const codeVerifier = createCodeVerifier();
-    const salt = createSalt();
 
     const url = await createConnectStartUrl({
       keyPair,
@@ -60,7 +57,8 @@ export class ExpoAuth2AuthProvider implements AuthProvider {
       sessionId: options.sessionId,
       provider: options.provider,
       codeVerifier,
-      salt,
+      // The P-256 ephemeral key is unique per wallet, so no additional salt is needed.
+      salt: "",
     });
 
     // Open the OAuth flow in an embedded browser; expo-web-browser intercepts
@@ -105,10 +103,9 @@ export class ExpoAuth2AuthProvider implements AuthProvider {
       codeVerifier,
     });
 
-    // Arm the stamper for OIDC stamps on subsequent KMS requests.
-    // TODO: Improve dependency injection to avoid setting these properties directly.
-    this.stamper.idToken = idToken;
-    this.stamper.salt = salt;
+    // Arm the stamper with the id token for KMS requests.
+    // Persisted to SecureStore so auto-connect can restore it on the next app launch.
+    await this.stamper.setIdToken(idToken);
 
     const { organizationId, walletId } = await this.kms.discoverOrganizationAndWalletId(bearerToken, authUserId);
 

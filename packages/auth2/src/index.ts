@@ -79,20 +79,7 @@ export async function createConnectStartUrl({
     keyPair,
   });
 
-  const url = new URL(jarPayload.aud);
-
-  url.searchParams.set("client_id", jarPayload.client_id);
-  url.searchParams.set("redirect_uri", jarPayload.redirect_uri);
-  url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", jarPayload.scope);
-  url.searchParams.set("nonce", jarPayload.nonce);
-  url.searchParams.set("state", jarPayload.state);
-  url.searchParams.set("code_challenge", jarPayload.code_challenge);
-  url.searchParams.set("code_challenge_method", jarPayload.code_challenge_method);
-  if (jarPayload.login_hint) {
-    url.searchParams.set("login_hint", jarPayload.login_hint);
-  }
-
+  const url = new URL(connectLoginUrl);
   url.hash = `jar=${jar}`;
 
   return url.toString();

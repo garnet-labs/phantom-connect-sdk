@@ -45,10 +45,10 @@ function App() {
         redirectUrl: import.meta.env.VITE_REDIRECT_URL,
       },
       /** When also provided, the Auth2 PKCE flow is used instead of the legacy Phantom Connect flow. */
-      unstable__auth2Options: {
-        authApiBaseUrl: import.meta.env.VITE___UNSTABLE_AUTH_API_BASE_URL,
-        clientId: import.meta.env.VITE___UNSTABLE_AUTH_CLIENT_ID,
-      },
+      // unstable__auth2Options: {
+      //   authApiBaseUrl: import.meta.env.VITE___UNSTABLE_AUTH_API_BASE_URL,
+      //   clientId: import.meta.env.VITE___UNSTABLE_AUTH_CLIENT_ID,
+      // },
       autoConnect: true,
     }),
     [],

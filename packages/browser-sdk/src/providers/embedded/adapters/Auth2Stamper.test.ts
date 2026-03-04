@@ -119,23 +119,63 @@ describe("Auth2Stamper", () => {
       const stamper = makeStamper();
       expect(stamper.algorithm).toBeDefined();
     });
+
+    it("restores the id token from IndexedDB on init()", async () => {
+      const dbName = `restore-db-${Date.now()}`;
+      const stamper1 = new Auth2Stamper(dbName);
+      await stamper1.init();
+      await stamper1.setIdToken("persisted-token");
+
+      // A new stamper instance loads from the same DB — simulates app reload.
+      const stamper2 = new Auth2Stamper(dbName);
+      await stamper2.init();
+
+      // Calling stamp() should succeed without any additional setIdToken call.
+      await expect(stamper2.stamp({ type: "OIDC", data: Buffer.from("payload") })).resolves.toBeTruthy();
+    });
+  });
+
+  describe("setIdToken()", () => {
+    it("makes stamp() succeed after being called", async () => {
+      const stamper = makeStamper();
+      await stamper.init();
+
+      await stamper.setIdToken("my-token");
+
+      await expect(stamper.stamp({ type: "OIDC", data: Buffer.from("payload") })).resolves.toBeTruthy();
+    });
+
+    it("persists the token so a reloaded stamper can stamp without re-authenticating", async () => {
+      const dbName = `persist-db-${Date.now()}`;
+      const stamper = new Auth2Stamper(dbName);
+      await stamper.init();
+      await stamper.setIdToken("auto-connect-token");
+
+      const reloaded = new Auth2Stamper(dbName);
+      await reloaded.init();
+
+      const stampStr = await reloaded.stamp({ type: "OIDC", data: Buffer.from("payload") });
+      const decoded = JSON.parse(Buffer.from(stampStr, "base64url").toString("utf-8")) as {
+        idToken: string;
+      };
+      expect(decoded.idToken).toBe("auto-connect-token");
+    });
   });
 
   describe("stamp()", () => {
     it("throws if called before init()", async () => {
       const stamper = makeStamper();
 
-      await expect(stamper.stamp({ data: Buffer.from("hello") })).rejects.toThrow("not initialized");
+      await expect(stamper.stamp({ type: "OIDC", data: Buffer.from("hello") })).rejects.toThrow("not initialized");
     });
 
     it("signs the data with ECDSA P-256 / SHA-256", async () => {
       const stamper = makeStamper();
       await stamper.init();
-      stamper.idToken = "";
-      stamper.salt = "";
+      await stamper.setIdToken("");
 
       const data = Buffer.from("test message");
-      await stamper.stamp({ data });
+      await stamper.stamp({ type: "OIDC", data });
 
       expect(mockSubtle.sign).toHaveBeenCalledWith(
         { name: "ECDSA", hash: "SHA-256" },
@@ -144,23 +184,20 @@ describe("Auth2Stamper", () => {
       );
     });
 
-    it("throws when called without idToken and salt set", async () => {
+    it("throws when called before setIdToken()", async () => {
       const stamper = makeStamper();
       await stamper.init();
 
-      await expect(stamper.stamp({ data: Buffer.from("payload") })).rejects.toThrow(
-        "not initialized with idToken or salt",
-      );
+      await expect(stamper.stamp({ type: "OIDC", data: Buffer.from("payload") })).rejects.toThrow("not initialized");
     });
 
-    it("returns an OIDC stamp when stamper.idToken and stamper.salt are set", async () => {
+    it("returns an OIDC stamp with the id token from setIdToken()", async () => {
       const stamper = makeStamper();
       await stamper.init();
 
-      stamper.idToken = "test-id-token";
-      stamper.salt = "test-salt";
+      await stamper.setIdToken("test-id-token");
 
-      const stampStr = await stamper.stamp({ data: Buffer.from("payload") });
+      const stampStr = await stamper.stamp({ type: "OIDC", data: Buffer.from("payload") });
       const decoded = JSON.parse(Buffer.from(stampStr, "base64url").toString("utf-8")) as {
         kind: string;
         idToken: string;
@@ -173,28 +210,17 @@ describe("Auth2Stamper", () => {
       expect(decoded.kind).toBe("OIDC");
       expect(decoded.idToken).toBe("test-id-token");
       expect(decoded.algorithm).toBe("Secp256r1");
-      expect(decoded.salt).toBe("test-salt");
+      expect(decoded.salt).toBe("");
       expect(typeof decoded.publicKey).toBe("string");
       expect(typeof decoded.signature).toBe("string");
-    });
-
-    it("throws when only idToken is set (salt is undefined)", async () => {
-      const stamper = makeStamper();
-      await stamper.init();
-      stamper.idToken = "token-without-salt";
-
-      await expect(stamper.stamp({ data: Buffer.from("data") })).rejects.toThrow(
-        "not initialized with idToken or salt",
-      );
     });
 
     it("uses the stored public key (base64url of raw P-256 bytes) in the OIDC stamp", async () => {
       const stamper = makeStamper();
       await stamper.init();
-      stamper.idToken = "";
-      stamper.salt = "";
+      await stamper.setIdToken("");
 
-      const stampStr = await stamper.stamp({ data: Buffer.from("data") });
+      const stampStr = await stamper.stamp({ type: "OIDC", data: Buffer.from("data") });
       const decoded = JSON.parse(Buffer.from(stampStr, "base64url").toString("utf-8")) as {
         publicKey: string;
       };
@@ -206,9 +232,8 @@ describe("Auth2Stamper", () => {
     it("works with empty data", async () => {
       const stamper = makeStamper();
       await stamper.init();
-      stamper.idToken = "";
-      stamper.salt = "";
-      await expect(stamper.stamp({ data: Buffer.from("") })).resolves.toBeTruthy();
+      await stamper.setIdToken("");
+      await expect(stamper.stamp({ type: "OIDC", data: Buffer.from("") })).resolves.toBeTruthy();
     });
   });
 
@@ -232,13 +257,15 @@ describe("Auth2Stamper", () => {
       expect(newInfo).toBeTruthy();
     });
 
-    it("clears in-memory state before generating", async () => {
+    it("clears the id token", async () => {
       const stamper = makeStamper();
       await stamper.init();
+      await stamper.setIdToken("t");
+
       await stamper.resetKeyPair();
 
-      // After reset the keyPair and keyInfo are regenerated; getKeyInfo should be non-null.
-      expect(stamper.getKeyInfo()).not.toBeNull();
+      // stamp() should now fail because the token was cleared.
+      await expect(stamper.stamp({ type: "OIDC", data: Buffer.from("x") })).rejects.toThrow("not initialized");
     });
   });
 
@@ -265,7 +292,7 @@ describe("Auth2Stamper", () => {
       await stamper.init();
       await stamper.clear();
 
-      await expect(stamper.stamp({ data: Buffer.from("x") })).rejects.toThrow("not initialized");
+      await expect(stamper.stamp({ type: "OIDC", data: Buffer.from("x") })).rejects.toThrow("not initialized");
     });
   });
 

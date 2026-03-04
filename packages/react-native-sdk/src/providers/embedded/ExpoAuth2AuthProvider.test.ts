@@ -9,7 +9,6 @@ const mockCreateConnectStartUrl = jest
 
 jest.mock("@phantom/auth2", () => ({
   createCodeVerifier: jest.fn().mockReturnValue("rn-code-verifier"),
-  createSalt: jest.fn().mockReturnValue("rn-salt"),
   createConnectStartUrl: mockCreateConnectStartUrl,
   exchangeAuthCode: jest.fn().mockResolvedValue({
     idToken: "rn-id-token",
@@ -25,7 +24,7 @@ jest.mock("@phantom/auth2", () => ({
 import type { AuthResult } from "@phantom/embedded-provider-core";
 import * as WebBrowser from "expo-web-browser";
 import { ExpoAuth2AuthProvider } from "./ExpoAuth2AuthProvider";
-import { createCodeVerifier, createSalt, createConnectStartUrl, exchangeAuthCode } from "@phantom/auth2";
+import { createCodeVerifier, createConnectStartUrl, exchangeAuthCode } from "@phantom/auth2";
 
 const AUTH2_OPTIONS = {
   clientId: "rn-client-id",
@@ -57,6 +56,7 @@ function makeStamper(initialized = true) {
       publicKey: "7EcDshMsTHCs2f2HU2a3n36x9JkEVVenF9oQQGy5U3s",
       createdAt: Date.now(),
     }),
+    setIdToken: jest.fn().mockResolvedValue(undefined),
     rotateKeyPair: jest.fn(),
     commitRotation: jest.fn(),
     rollbackRotation: jest.fn(),
@@ -64,8 +64,6 @@ function makeStamper(initialized = true) {
     clear: jest.fn(),
     algorithm: "ECDSA_P256",
     type: "OIDC" as "PKI" | "OIDC",
-    idToken: undefined as string | undefined,
-    salt: undefined as string | undefined,
   };
 }
 
@@ -141,13 +139,7 @@ describe("ExpoAuth2AuthProvider.authenticate()", () => {
     expect(createCodeVerifier).toHaveBeenCalled();
   });
 
-  it("creates a per-session salt", async () => {
-    await makeProvider().authenticate(CONNECT_OPTIONS);
-
-    expect(createSalt).toHaveBeenCalled();
-  });
-
-  it("calls createConnectStartUrl with the correct options including salt", async () => {
+  it("calls createConnectStartUrl with the correct options", async () => {
     await makeProvider().authenticate(CONNECT_OPTIONS);
 
     expect(createConnectStartUrl).toHaveBeenCalledWith(
@@ -159,17 +151,16 @@ describe("ExpoAuth2AuthProvider.authenticate()", () => {
         sessionId: CONNECT_OPTIONS.sessionId,
         provider: CONNECT_OPTIONS.provider,
         codeVerifier: "rn-code-verifier",
-        salt: "rn-salt",
+        salt: "",
       }),
     );
   });
 
-  it("sets stamper.idToken and stamper.salt after successful token exchange", async () => {
+  it("calls setIdToken with idToken after successful token exchange", async () => {
     const stamper = makeStamper(true);
     await makeProvider(stamper).authenticate(CONNECT_OPTIONS);
 
-    expect(stamper.idToken).toBe("rn-id-token");
-    expect(stamper.salt).toBe("rn-salt");
+    expect(stamper.setIdToken).toHaveBeenCalledWith("rn-id-token");
   });
 
   it("passes the createConnectStartUrl result to openAuthSessionAsync", async () => {

@@ -1,5 +1,11 @@
 # @phantom/utils
 
+## 1.0.5
+
+### Patch Changes
+
+- a8287d6: Fix release for auth 2
+
 ## 1.0.4
 
 ### Patch Changes

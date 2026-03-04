@@ -1,5 +1,22 @@
 # @phantom/browser-sdk
 
+## 1.0.5
+
+### Patch Changes
+
+- a8287d6: Fix release for auth 2
+- Updated dependencies [a8287d6]
+  - @phantom/auth2@1.0.1
+  - @phantom/base64url@1.0.5
+  - @phantom/browser-injected-sdk@1.0.5
+  - @phantom/chain-interfaces@1.0.5
+  - @phantom/client@1.0.5
+  - @phantom/constants@1.0.5
+  - @phantom/embedded-provider-core@1.0.5
+  - @phantom/indexed-db-stamper@1.0.5
+  - @phantom/parsers@1.0.5
+  - @phantom/sdk-types@1.0.5
+
 ## 1.0.4
 
 ### Patch Changes
