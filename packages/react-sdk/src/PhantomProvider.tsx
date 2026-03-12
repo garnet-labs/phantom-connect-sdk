@@ -87,11 +87,23 @@ export function PhantomProvider({ children, config, debugConfig, theme, appIcon,
       } catch (err) {
         console.error("Error connecting:", err);
 
-        // Call disconnect to reset state if an error occurs
+        // Best-effort disconnect to clean up the underlying session.
+        // If disconnect succeeds, the "disconnect" event fires and handleDisconnect
+        // resets all state — no manual cleanup needed.
+        // If disconnect itself throws, the event never fires, so we reset state
+        // manually in the inner catch to avoid being stuck as isConnected=true.
         try {
           await sdk.disconnect();
-        } catch (err) {
-          console.error("Error disconnecting:", err);
+        } catch (disconnectErr) {
+          console.error("Error disconnecting after connect failure:", disconnectErr);
+          setIsConnected(false);
+          setIsConnecting(false);
+          setAddresses([]);
+          setUser(null);
+          setErrors((prev: PhantomErrors) => ({
+            ...prev,
+            connect: err instanceof Error ? err : new Error("Failed to retrieve addresses after connect"),
+          }));
         }
       }
     };

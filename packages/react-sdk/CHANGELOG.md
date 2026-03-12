@@ -1,5 +1,18 @@
 # @phantom/react-sdk
 
+## 1.0.6
+
+### Patch Changes
+
+- a8287d6: Fix release for auth 2
+- 7bdd9b8: Increase TTL of sessions to 31 days
+- Updated dependencies [a8287d6]
+- Updated dependencies [7bdd9b8]
+  - @phantom/browser-sdk@1.0.6
+  - @phantom/chain-interfaces@1.0.6
+  - @phantom/constants@1.0.6
+  - @phantom/wallet-sdk-ui@1.0.6
+
 ## 1.0.5
 
 ### Patch Changes

@@ -317,6 +317,19 @@ The embedded wallet is a beta version, and Phantom will not be liable for any lo
 
 Any suggestions, enhancement requests, recommendations, or other feedback provided by you regarding the embedded wallet will be the exclusive property of Phantom. By using this beta version and providing feedback, you agree to assign any rights in that feedback to Phantom.
 
+## Claude Code Skills
+
+This repo includes a set of Claude Code skills under `.claude/skills/` to accelerate common development workflows. Invoke them from the Claude Code CLI:
+
+| Skill                     | Usage                               | Description                                                                                                                                     |
+| ------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/audit`                  | `/audit <package-name>`             | Structured code quality review of a package — reads source and tests, flags issues by severity, writes a report to `/audit/`.                   |
+| `/fix-audit`              | `/fix-audit <package-name> [notes]` | Implements findings from the latest audit report one item at a time, writes tests, and runs the full pipeline before marking anything resolved. |
+| `/testing`                | `/testing [package-name]`           | Runs Prettier, build, type-check, lint, and tests in order. Stops at first failure and prints a summary table.                                  |
+| `/generate-release-notes` | `/generate-release-notes <tag>`     | Generates structured release notes (breaking changes, features, fixes) from a git diff against a tag.                                           |
+
+> Audit reports are written to `/audit/` at the repo root, which is gitignored.
+
 ## Releasing a new version
 
 This project uses the command `yarn changeset` to generate new versions for the different packages.

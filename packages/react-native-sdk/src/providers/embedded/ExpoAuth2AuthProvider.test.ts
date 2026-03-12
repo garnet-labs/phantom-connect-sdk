@@ -15,6 +15,7 @@ jest.mock("@phantom/auth2", () => ({
     bearerToken: "Bearer rn-id-token",
     authUserId: "rn-user-1",
     expiresInMs: 7_200_000,
+    refreshToken: "rn-refresh-token",
   }),
   Auth2KmsRpcClient: jest.fn().mockImplementation(() => ({
     discoverOrganizationAndWalletId: mockDiscoverOrganizationAndWalletId,
@@ -56,7 +57,12 @@ function makeStamper(initialized = true) {
       publicKey: "7EcDshMsTHCs2f2HU2a3n36x9JkEVVenF9oQQGy5U3s",
       createdAt: Date.now(),
     }),
-    setIdToken: jest.fn().mockResolvedValue(undefined),
+    getTokens: jest.fn().mockResolvedValue({
+      idToken: "rn-id-token",
+      bearerToken: "Bearer rn-id-token",
+      refreshToken: "rn-refresh-token",
+    }),
+    setTokens: jest.fn().mockResolvedValue(undefined),
     rotateKeyPair: jest.fn(),
     commitRotation: jest.fn(),
     rollbackRotation: jest.fn(),
@@ -156,11 +162,16 @@ describe("ExpoAuth2AuthProvider.authenticate()", () => {
     );
   });
 
-  it("calls setIdToken with idToken after successful token exchange", async () => {
+  it("calls setTokens with idToken, refreshToken, and expiresInMs after successful token exchange", async () => {
     const stamper = makeStamper(true);
     await makeProvider(stamper).authenticate(CONNECT_OPTIONS);
 
-    expect(stamper.setIdToken).toHaveBeenCalledWith("rn-id-token");
+    expect(stamper.setTokens).toHaveBeenCalledWith({
+      idToken: "rn-id-token",
+      bearerToken: "Bearer rn-id-token",
+      refreshToken: "rn-refresh-token",
+      expiresInMs: 7_200_000,
+    });
   });
 
   it("passes the createConnectStartUrl result to openAuthSessionAsync", async () => {

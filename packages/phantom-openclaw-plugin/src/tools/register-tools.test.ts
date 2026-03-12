@@ -45,7 +45,7 @@ describe("registerPhantomTools schema conversion", () => {
   it("preserves other tool constraints such as required fields and integer validation", () => {
     const registeredTools = registerToolsForTest();
     const transferTokensSchema = findToolSchema(registeredTools, "transfer_tokens");
-    const signMessageSchema = findToolSchema(registeredTools, "sign_message");
+    const signMessageSchema = findToolSchema(registeredTools, "sign_solana_message");
 
     expect(
       Value.Check(transferTokensSchema, {

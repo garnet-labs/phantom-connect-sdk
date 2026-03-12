@@ -133,7 +133,7 @@ describe("SessionManager", () => {
         apiSecretKey: validSession.stamperKeys.secretKey,
       });
       expect(PhantomClient).toHaveBeenCalledWith(
-        {
+        expect.objectContaining({
           apiBaseUrl: "https://api.phantom.app/v1/wallets",
           organizationId: validSession.organizationId,
           walletType: "user-wallet",
@@ -144,7 +144,7 @@ describe("SessionManager", () => {
             "x-phantom-sdk-version": expect.any(String),
             "x-app-id": "phantom-mcp",
           }),
-        },
+        }),
         expect.anything(),
       );
     });
@@ -331,7 +331,7 @@ describe("SessionManager", () => {
       await manager.initialize();
 
       expect(PhantomClient).toHaveBeenCalledWith(
-        {
+        expect.objectContaining({
           apiBaseUrl: "https://custom-api.example.com",
           organizationId: validSession.organizationId,
           walletType: "user-wallet",
@@ -342,7 +342,7 @@ describe("SessionManager", () => {
             "x-phantom-sdk-version": expect.any(String),
             "x-app-id": "phantom-mcp",
           }),
-        },
+        }),
         expect.anything(),
       );
     });

@@ -6,6 +6,27 @@
  * - Registers MCP tool handlers
  * - Communicates via stdio transport
  * - Handles tools/list and tools/call requests
+ *
+ * ## Session Lifecycle & Re-Authentication
+ *
+ * Sessions are stored in ~/.phantom-mcp/session.json as a stamper keypair.
+ * Although keypairs themselves don't expire, the Phantom server can reject
+ * them (returning HTTP 401 or 403) if the authenticator is revoked, the
+ * app ID changes, or an admin rotates credentials.
+ *
+ * Detection & Recovery Pattern:
+ *   1. Any tool call that hits a 401/403 triggers automatic re-authentication.
+ *   2. resetSession() deletes the stored session and opens the browser for
+ *      Phantom Connect sign-in (Google/Apple/Phantom extension).
+ *   3. The agent receives an AUTH_EXPIRED error and should retry once the
+ *      user completes browser sign-in.
+ *
+ * Example agent flow:
+ *   → get_wallet_addresses
+ *   ← {error: "...", code: "AUTH_EXPIRED"}   (session invalid — browser sign-in triggered)
+ *   [user completes browser sign-in]
+ *   → get_wallet_addresses  (agent retries)
+ *   ← {walletId, addresses: [...]}            (success)
  */
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -18,6 +39,18 @@ import {
 import { SessionManager } from "./session/manager.js";
 import { tools, getTool } from "./tools/index.js";
 import { Logger } from "./utils/logger.js";
+
+/**
+ * Returns true if the error is a 401 or 403 HTTP response from the Phantom API.
+ * This indicates the stamper session has been revoked or is no longer valid.
+ */
+function isAuthError(error: unknown): boolean {
+  if (error && typeof error === "object") {
+    const status = (error as { response?: { status?: number } }).response?.status;
+    return status === 401 || status === 403;
+  }
+  return false;
+}
 
 /**
  * Configuration options for PhantomMCPServer
@@ -57,15 +90,27 @@ export class PhantomMCPServer {
     this.logger = new Logger("PhantomMCPServer");
 
     // Initialize MCP Server
+    // The server name and instructions are surfaced to agents during the MCP handshake,
+    // giving them immediate context about Phantom and available capabilities.
     this.server = new Server(
       {
-        name: "phantom-mcp-server",
+        name: "Phantom Wallet MCP Server",
         version: "1.0.0",
       },
       {
         capabilities: {
           tools: {},
         },
+        instructions:
+          "This is the Phantom Wallet MCP Server. Phantom is an enterprise-grade non-custodial crypto wallet supporting Solana, Ethereum, Bitcoin, Base, Polygon, Sui, and Monad. " +
+          "Authentication uses Phantom Connect (OAuth with Google, Apple, or Phantom extension). Sessions persist across restarts. " +
+          "Available tools: get_wallet_addresses (check connection & get addresses), get_connection_status (lightweight connection check), " +
+          "get_token_balances (check all token balances + USD prices via Phantom portfolio API), " +
+          "transfer_tokens (SOL/SPL transfers on Solana), buy_token (Solana token swaps via Phantom routing), " +
+          "sign_transaction (sign and broadcast pre-built transactions), sign_message (sign UTF-8 messages). " +
+          "Always call get_wallet_addresses or get_connection_status first to confirm the user is authenticated. " +
+          "Solana transactions require a small SOL balance (~0.000005 SOL) for network fees. " +
+          "If an auth error occurs, re-authentication is triggered and the agent should retry after the user completes browser sign-in.",
       },
     );
 
@@ -155,7 +200,31 @@ export class PhantomMCPServer {
           ],
         };
       } catch (error) {
-        // Step 6: On error, return error in text content with isError: true
+        // Step 6: On auth failure (401/403), reset the session to trigger re-authentication.
+        // The agent receives an actionable error and should retry the request after sign-in.
+        if (isAuthError(error)) {
+          this.logger.warn(`Auth error (401/403) on tool ${toolName} — resetting session`);
+          await this.sessionManager.resetSession();
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(
+                  {
+                    error:
+                      "Session expired. Re-authentication was triggered — please complete the Phantom Connect browser sign-in and retry this request.",
+                    code: "AUTH_EXPIRED",
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        // Non-auth error: return as-is
         const errorMessage = error instanceof Error ? error.message : String(error);
 
         // Log stack for debugging but don't expose to clients

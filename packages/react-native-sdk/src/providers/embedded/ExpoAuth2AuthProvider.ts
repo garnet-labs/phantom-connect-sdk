@@ -1,27 +1,21 @@
 import * as WebBrowser from "expo-web-browser";
 import type { AuthProvider, AuthResult, PhantomConnectOptions } from "@phantom/embedded-provider-core";
-import type { StamperWithKeyManagement } from "@phantom/sdk-types";
 import {
   createCodeVerifier,
   exchangeAuthCode,
   Auth2KmsRpcClient,
   type Auth2AuthProviderOptions,
   type Auth2KmsClientOptions,
+  type Auth2StamperWithKeyManagement,
   createConnectStartUrl,
 } from "@phantom/auth2";
-
-/** Stampers used with Auth2 must be able to expose their CryptoKeyPair for JAR signing. */
-interface Auth2StamperLike extends StamperWithKeyManagement {
-  getCryptoKeyPair(): CryptoKeyPair | null;
-  setIdToken(idToken: string): Promise<void>;
-}
 
 export class ExpoAuth2AuthProvider implements AuthProvider {
   private readonly auth2ProviderOptions: Auth2AuthProviderOptions;
   private readonly kms: Auth2KmsRpcClient;
 
   constructor(
-    private readonly stamper: Auth2StamperLike,
+    private readonly stamper: Auth2StamperWithKeyManagement,
     auth2ProviderOptions: Auth2AuthProviderOptions,
     kmsClientOptions: Auth2KmsClientOptions,
   ) {
@@ -95,7 +89,7 @@ export class ExpoAuth2AuthProvider implements AuthProvider {
       throw new Error("Auth2 callback missing authorization code");
     }
 
-    const { idToken, bearerToken, authUserId, expiresInMs } = await exchangeAuthCode({
+    const { idToken, bearerToken, authUserId, expiresInMs, refreshToken } = await exchangeAuthCode({
       authApiBaseUrl: this.auth2ProviderOptions.authApiBaseUrl,
       clientId: this.auth2ProviderOptions.clientId,
       redirectUri: this.auth2ProviderOptions.redirectUri,
@@ -103,9 +97,9 @@ export class ExpoAuth2AuthProvider implements AuthProvider {
       codeVerifier,
     });
 
-    // Arm the stamper with the id token for KMS requests.
+    // Arm the stamper with the id token (and optional refresh token) for KMS requests.
     // Persisted to SecureStore so auto-connect can restore it on the next app launch.
-    await this.stamper.setIdToken(idToken);
+    await this.stamper.setTokens({ idToken, bearerToken, refreshToken, expiresInMs });
 
     const { organizationId, walletId } = await this.kms.discoverOrganizationAndWalletId(bearerToken, authUserId);
 

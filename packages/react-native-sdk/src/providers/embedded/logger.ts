@@ -7,27 +7,27 @@ export class ExpoLogger implements DebugLogger {
     this.enabled = enabled;
   }
 
-  info(category: string, message: string, data?: any): void {
+  info(message: string, ...args: unknown[]): void {
     if (this.enabled) {
-      console.info(`[${category}] ${message}`, data);
+      console.info(`[PHANTOM] ${message}`, ...args);
     }
   }
 
-  warn(category: string, message: string, data?: any): void {
+  warn(message: string, ...args: unknown[]): void {
     if (this.enabled) {
-      console.warn(`[${category}] ${message}`, data);
+      console.warn(`[PHANTOM] ${message}`, ...args);
     }
   }
 
-  error(category: string, message: string, data?: any): void {
+  error(message: string, ...args: unknown[]): void {
     if (this.enabled) {
-      console.error(`[${category}] ${message}`, data);
+      console.error(`[PHANTOM] ${message}`, ...args);
     }
   }
 
-  log(category: string, message: string, data?: any): void {
+  debug(message: string, ...args: unknown[]): void {
     if (this.enabled) {
-      console.log(`[${category}] ${message}`, data);
+      console.log(`[PHANTOM] ${message}`, ...args);
     }
   }
 }

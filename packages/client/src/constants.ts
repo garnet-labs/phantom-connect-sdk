@@ -94,11 +94,3 @@ export function getNetworkConfig(networkId: NetworkId, accountIndex: number = 0)
       return null;
   }
 }
-
-/**
- * Get complete network configuration with custom derivation index
- * @deprecated Use getNetworkConfig(networkId, derivationIndex) instead
- */
-export function getNetworkConfigWithIndex(networkId: NetworkId, derivationIndex: number = 0): NetworkConfig | null {
-  return getNetworkConfig(networkId, derivationIndex);
-}

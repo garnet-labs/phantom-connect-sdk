@@ -52,7 +52,7 @@ function createCompletedSession(overrides: Partial<Session> = {}): Session {
     createdAt: now,
     lastUsed: now,
     authenticatorCreatedAt: now,
-    authenticatorExpiresAt: now + 7 * 24 * 60 * 60 * 1000, // 7 days from now
+    authenticatorExpiresAt: now + 31 * 24 * 60 * 60 * 1000, // 31 days from now
     lastRenewalAttempt: undefined,
     username: "test-user",
     ...overrides,
@@ -73,7 +73,7 @@ function createPendingSession(overrides: Partial<Session> = {}): Session {
     createdAt: now,
     lastUsed: now,
     authenticatorCreatedAt: now,
-    authenticatorExpiresAt: now + 7 * 24 * 60 * 60 * 1000, // 7 days from now
+    authenticatorExpiresAt: now + 31 * 24 * 60 * 60 * 1000, // 31 days from now
     lastRenewalAttempt: undefined,
     username: "test-user",
     ...overrides,
@@ -167,7 +167,7 @@ describe("EmbeddedProvider Auth Flows", () => {
       info: jest.fn(),
       warn: jest.fn(),
       error: jest.fn(),
-      log: jest.fn(),
+      debug: jest.fn(),
     };
 
     // Mock PhantomClient

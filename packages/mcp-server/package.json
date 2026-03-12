@@ -1,6 +1,6 @@
 {
   "name": "@phantom/mcp-server",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "description": "MCP Server for Phantom Wallet",
   "repository": {
     "type": "git",
@@ -43,6 +43,7 @@
     "@phantom/client": "workspace:^",
     "@phantom/constants": "workspace:^",
     "@phantom/crypto": "workspace:^",
+    "@phantom/parsers": "workspace:^",
     "@phantom/server-sdk": "workspace:^",
     "@phantom/utils": "workspace:^",
     "@solana/spl-token": "^0.4.14",

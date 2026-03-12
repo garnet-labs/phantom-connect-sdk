@@ -1,5 +1,24 @@
 # @phantom/browser-sdk
 
+## 1.0.6
+
+### Patch Changes
+
+- a8287d6: Fix release for auth 2
+- 7bdd9b8: Increase TTL of sessions to 31 days
+- Updated dependencies [a8287d6]
+- Updated dependencies [7bdd9b8]
+  - @phantom/auth2@1.0.2
+  - @phantom/base64url@1.0.6
+  - @phantom/browser-injected-sdk@1.0.6
+  - @phantom/chain-interfaces@1.0.6
+  - @phantom/client@1.0.6
+  - @phantom/constants@1.0.6
+  - @phantom/embedded-provider-core@1.0.6
+  - @phantom/indexed-db-stamper@1.0.6
+  - @phantom/parsers@1.0.6
+  - @phantom/sdk-types@1.0.6
+
 ## 1.0.5
 
 ### Patch Changes

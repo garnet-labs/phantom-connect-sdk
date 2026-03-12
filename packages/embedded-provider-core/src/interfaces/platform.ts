@@ -16,9 +16,4 @@ export interface PlatformAdapter {
   analyticsHeaders?: Partial<ClientSideSdkHeaders>;
 }
 
-export interface DebugLogger {
-  info(category: string, message: string, data?: any): void;
-  warn(category: string, message: string, data?: any): void;
-  error(category: string, message: string, data?: any): void;
-  log(category: string, message: string, data?: any): void;
-}
+export type { Logger as DebugLogger } from "@phantom/utils";

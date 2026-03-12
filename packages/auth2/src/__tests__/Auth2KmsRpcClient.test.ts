@@ -19,7 +19,6 @@ jest.mock("axios", () => ({
   create: jest.fn(),
 }));
 
-import type { StamperWithKeyManagement } from "@phantom/sdk-types";
 import axios from "axios";
 import { KMSRPCApi } from "@phantom/openapi-wallet-service";
 import { Auth2KmsRpcClient } from "../index";
@@ -28,6 +27,7 @@ function makeStamper(
   overrides: Partial<{
     stamp: jest.Mock;
     getKeyInfo: jest.Mock;
+    getTokens: jest.Mock;
     init: jest.Mock;
   }> = {},
 ) {
@@ -38,6 +38,9 @@ function makeStamper(
       publicKey: "7EcDshMsTHCs2f2HU2a3n36x9JkEVVenF9oQQGy5U3s",
       createdAt: Date.now(),
     }),
+    getTokens: jest.fn().mockResolvedValue(null),
+    getCryptoKeyPair: jest.fn().mockReturnValue(null),
+    setTokens: jest.fn().mockResolvedValue(undefined),
     init: jest.fn().mockResolvedValue({
       keyId: "key-id-1",
       publicKey: "7EcDshMsTHCs2f2HU2a3n36x9JkEVVenF9oQQGy5U3s",
@@ -56,7 +59,7 @@ function makeStamper(
 
 describe("Auth2KmsRpcClient", () => {
   const kmsOptions = { apiBaseUrl: "https://kms.example.com", appId: "app-123" };
-  const bearerToken = "Bearer id-token";
+  const bearerToken = "Bearer access-token";
   const authUserId = "user-id";
 
   function makeAxiosFake() {
@@ -74,7 +77,7 @@ describe("Auth2KmsRpcClient", () => {
   function makeClient(stamperOverrides = {}) {
     capturedRequestInterceptor = null;
     (axios.create as jest.Mock).mockReturnValueOnce(makeAxiosFake());
-    return new Auth2KmsRpcClient(makeStamper(stamperOverrides) as unknown as StamperWithKeyManagement, kmsOptions);
+    return new Auth2KmsRpcClient(makeStamper(stamperOverrides) as never, kmsOptions);
   }
 
   beforeEach(() => {
@@ -106,6 +109,34 @@ describe("Auth2KmsRpcClient", () => {
       const config = { headers: {} as Record<string, string> };
       await capturedRequestInterceptor!(config);
       expect(stamper.stamp).toHaveBeenCalledWith(expect.objectContaining({ data: expect.anything() }));
+    });
+
+    it("sets authorization header when getTokens returns tokens", async () => {
+      const stamper = makeStamper({
+        getTokens: jest.fn().mockResolvedValue({
+          idToken: "id-tok",
+          bearerToken: "Bearer access-token",
+          refreshToken: "refresh-tok",
+        }),
+      });
+      makeClient(stamper);
+      const config = { data: "{}", headers: {} as Record<string, string> };
+
+      const result = await capturedRequestInterceptor!(config);
+
+      const headers = result["headers"] as Record<string, string>;
+      expect(headers["authorization"]).toBe("Bearer access-token");
+    });
+
+    it("omits authorization header when getTokens returns null", async () => {
+      const stamper = makeStamper({ getTokens: jest.fn().mockResolvedValue(null) });
+      makeClient(stamper);
+      const config = { data: "{}", headers: {} as Record<string, string> };
+
+      const result = await capturedRequestInterceptor!(config);
+
+      const headers = result["headers"] as Record<string, string>;
+      expect(headers["authorization"]).toBeUndefined();
     });
   });
 

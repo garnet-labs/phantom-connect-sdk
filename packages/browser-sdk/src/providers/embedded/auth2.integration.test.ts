@@ -95,7 +95,6 @@ afterEach(() => {
   navigateSpy.mockRestore();
 });
 
-import type { StamperWithKeyManagement } from "@phantom/sdk-types";
 import type { EmbeddedStorage, URLParamsAccessor } from "@phantom/embedded-provider-core";
 import { Auth2Stamper } from "./adapters/Auth2Stamper";
 import { Auth2AuthProvider } from "./adapters/Auth2AuthProvider";
@@ -141,7 +140,7 @@ function makeProvider(
   urlParams: ReturnType<typeof makeUrlParams>,
 ) {
   return new Auth2AuthProvider(
-    stamper as unknown as StamperWithKeyManagement,
+    stamper,
     storage as unknown as EmbeddedStorage,
     urlParams as unknown as URLParamsAccessor,
     AUTH2_OPTIONS,
@@ -226,7 +225,7 @@ describe("Auth2 browser flow — end-to-end", () => {
     expect(mockSubtle.generateKey).toHaveBeenCalledTimes(1);
   });
 
-  it("stamp() throws before setIdToken(); produces OIDC stamp after the id token is set", async () => {
+  it("stamp() throws before setTokens(); produces OIDC stamp after the token is set", async () => {
     const dbName = `stamp-db-${Date.now()}`;
     const stamper = new Auth2Stamper(dbName);
     const keyInfo = await stamper.init();
@@ -236,7 +235,7 @@ describe("Auth2 browser flow — end-to-end", () => {
     await expect(stamper.stamp({ type: "OIDC", data: Buffer.from("test-payload") })).rejects.toThrow("not initialized");
 
     // After setting the id token, stamp() produces an OIDC envelope.
-    await stamper.setIdToken("integration-id-token");
+    await stamper.setTokens({ idToken: "integration-id-token", bearerToken: "Bearer integration-id-token" });
     const stampStr = await stamper.stamp({ type: "OIDC", data: Buffer.from("test-payload") });
     const decoded = JSON.parse(Buffer.from(stampStr, "base64url").toString()) as {
       kind: string;

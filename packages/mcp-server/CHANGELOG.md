@@ -1,5 +1,25 @@
 # @phantom/mcp-server
 
+## 0.2.0
+
+### Minor Changes
+
+- e5401de: Updated MCP interfaces to support EVM transactions, added balance fetching.
+
+### Patch Changes
+
+- 3b452b7: Updated descriptions and added new get balances method. Fixed openclaw plugin identifier
+- Updated dependencies [a8287d6]
+- Updated dependencies [7bdd9b8]
+  - @phantom/api-key-stamper@1.0.6
+  - @phantom/base64url@1.0.6
+  - @phantom/client@1.0.6
+  - @phantom/constants@1.0.6
+  - @phantom/crypto@1.0.6
+  - @phantom/parsers@1.0.6
+  - @phantom/server-sdk@1.0.6
+  - @phantom/utils@1.0.6
+
 ## 0.1.8
 
 ### Patch Changes

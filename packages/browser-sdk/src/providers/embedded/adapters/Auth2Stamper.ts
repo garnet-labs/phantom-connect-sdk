@@ -1,24 +1,43 @@
 import bs58 from "bs58";
 import { base64urlEncode } from "@phantom/base64url";
 import { Algorithm } from "@phantom/sdk-types";
-import type { StamperWithKeyManagement, StamperKeyInfo } from "@phantom/sdk-types";
+import type { StamperKeyInfo } from "@phantom/sdk-types";
 import type { Buffer } from "buffer";
+import { refreshToken as refreshTokenRequest } from "@phantom/auth2";
+import type { Auth2StamperWithKeyManagement } from "@phantom/auth2";
+import { TOKEN_REFRESH_BUFFER_MS } from "@phantom/constants";
 
 const STORE_NAME = "crypto-keys";
 const ACTIVE_KEY = "auth2-p256-signing-key";
+
+export type Auth2StamperRefreshConfig = {
+  authApiBaseUrl: string;
+  clientId: string;
+  redirectUri: string;
+};
 
 interface StoredRecord {
   keyPair: CryptoKeyPair;
   keyInfo: StamperKeyInfo;
   /** Persisted so that auto-connect can restore OIDC stamping without a new login. */
   idToken?: string;
+  /** Raw OAuth2 access_token persisted for auto-connect token restoration. */
+  bearerToken?: string;
+  /** Persisted alongside idToken to allow silent token refresh via offline_access scope. */
+  refreshToken?: string;
+  /** Unix ms timestamp at which idToken expires (Date.now() + expiresInMs). */
+  tokenExpiresAt?: number;
 }
 
-export class Auth2Stamper implements StamperWithKeyManagement {
+export class Auth2Stamper implements Auth2StamperWithKeyManagement {
   private db: IDBDatabase | null = null;
+
   private _keyPair: CryptoKeyPair | null = null;
   private _keyInfo: StamperKeyInfo | null = null;
   private _idToken: string | null = null;
+  private _bearerToken: string | null = null;
+  private _refreshToken: string | null = null;
+  private _tokenExpiresAt: number | null = null;
 
   readonly algorithm: Algorithm = Algorithm.secp256r1;
   readonly type = "OIDC";
@@ -26,8 +45,13 @@ export class Auth2Stamper implements StamperWithKeyManagement {
   /**
    * @param dbName - IndexedDB database name (use a unique name per app to
    *   avoid key collisions with other stampers, e.g. `phantom-auth2-<appId>`).
+   * @param refreshConfig - When provided, the stamper will automatically refresh
+   *   the id_token using the refresh_token before it expires.
    */
-  constructor(private readonly dbName: string) {}
+  constructor(
+    private readonly dbName: string,
+    private readonly refreshConfig?: Auth2StamperRefreshConfig,
+  ) {}
 
   async init(): Promise<StamperKeyInfo> {
     await this.openDB();
@@ -38,6 +62,15 @@ export class Auth2Stamper implements StamperWithKeyManagement {
       this._keyInfo = stored.keyInfo;
       if (stored.idToken) {
         this._idToken = stored.idToken;
+      }
+      if (stored.bearerToken) {
+        this._bearerToken = stored.bearerToken;
+      }
+      if (stored.refreshToken) {
+        this._refreshToken = stored.refreshToken;
+      }
+      if (stored.tokenExpiresAt) {
+        this._tokenExpiresAt = stored.tokenExpiresAt;
       }
       return this._keyInfo;
     }
@@ -54,21 +87,76 @@ export class Auth2Stamper implements StamperWithKeyManagement {
   }
 
   /**
-   * Arms the stamper with the OIDC id token for subsequent KMS stamp() calls.
-   *
-   * Persists the token to IndexedDB alongside the key pair so that
-   * auto-connect can restore it on the next page load without a new login.
+   * Returns the current token state (refreshing proactively if near expiry),
+   * or null if no token has been set yet.
    */
-  async setIdToken(idToken: string): Promise<void> {
+  async getTokens(): Promise<{ idToken: string; bearerToken: string; refreshToken?: string } | null> {
+    if (
+      this.refreshConfig &&
+      this._refreshToken &&
+      this._tokenExpiresAt !== null &&
+      Date.now() >= this._tokenExpiresAt - TOKEN_REFRESH_BUFFER_MS
+    ) {
+      const refreshed = await refreshTokenRequest({
+        authApiBaseUrl: this.refreshConfig.authApiBaseUrl,
+        clientId: this.refreshConfig.clientId,
+        redirectUri: this.refreshConfig.redirectUri,
+        refreshToken: this._refreshToken,
+      });
+      await this.setTokens(refreshed);
+    }
+
+    if (!this._idToken || !this._bearerToken) {
+      return null;
+    }
+
+    return {
+      idToken: this._idToken,
+      bearerToken: this._bearerToken,
+      refreshToken: this._refreshToken ?? undefined,
+    };
+  }
+
+  /**
+   * Arms the stamper with the OIDC token data for subsequent KMS stamp() calls.
+   *
+   * Persists the tokens to IndexedDB alongside the key pair so that
+   * auto-connect can restore them on the next page load without a new login.
+   *
+   * @param refreshToken - When provided alongside a `refreshConfig`, enables
+   *   silent token refresh before the token expires.
+   * @param expiresInMs - Token lifetime in milliseconds (from `expires_in * 1000`).
+   *   Used to compute the absolute expiry time for proactive refresh.
+   */
+  async setTokens({
+    idToken,
+    bearerToken,
+    refreshToken,
+    expiresInMs,
+  }: {
+    idToken: string;
+    bearerToken: string;
+    refreshToken?: string;
+    expiresInMs?: number;
+  }): Promise<void> {
     if (!this.db) {
       await this.openDB();
     }
 
     this._idToken = idToken;
+    this._bearerToken = bearerToken;
+    this._refreshToken = refreshToken ?? null;
+    this._tokenExpiresAt = expiresInMs != null ? Date.now() + expiresInMs : null;
 
     const existing = await this.loadRecord();
     if (existing) {
-      await this.storeRecord({ ...existing, idToken });
+      await this.storeRecord({
+        ...existing,
+        idToken,
+        bearerToken,
+        refreshToken,
+        tokenExpiresAt: this._tokenExpiresAt ?? undefined,
+      });
     }
   }
 
@@ -108,6 +196,9 @@ export class Auth2Stamper implements StamperWithKeyManagement {
     this._keyPair = null;
     this._keyInfo = null;
     this._idToken = null;
+    this._bearerToken = null;
+    this._refreshToken = null;
+    this._tokenExpiresAt = null;
   }
 
   // Auth2 doesn't use key rotation; provide minimal no-op implementations.

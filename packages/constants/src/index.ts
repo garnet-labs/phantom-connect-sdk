@@ -1,3 +1,4 @@
+export * from "./auth2";
 export * from "./authenticators";
 export * from "./icons";
 export * from "./network-ids";

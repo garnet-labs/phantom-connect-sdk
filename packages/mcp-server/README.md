@@ -8,19 +8,25 @@
 >
 > **Phantom makes no guarantees whatsoever around anything your agent may do using this MCP server.** Use at your own risk.
 
-An MCP (Model Context Protocol) server that provides LLMs like Claude with direct access to Phantom wallet operations. This enables AI assistants to interact with embedded wallets, view addresses, sign transactions, and sign messages across multiple blockchain networks (Solana, Ethereum, Bitcoin, Sui) through natural language interactions.
+An MCP (Model Context Protocol) server that provides LLMs like Claude with direct access to Phantom wallet operations. This enables AI assistants to interact with embedded wallets, view addresses, sign and send transactions, and sign messages across Solana and EVM chains through natural language interactions.
 
 ## Features
 
 - **SSO Authentication**: Seamless integration with Phantom's embedded wallet SSO flow (Google/Apple login)
 - **Session Persistence**: Automatic session management with stamper keys stored in `~/.phantom-mcp/session.json`
-- **Multi-Chain Support**: Works with Solana, Ethereum, Bitcoin, and Sui networks
-- **Five MCP Tools**:
-  - `get_wallet_addresses` - Get blockchain addresses for the authenticated embedded wallet
-  - `sign_transaction` - Sign transactions across supported chains
-  - `transfer_tokens` - Transfer SOL or SPL tokens on Solana (executes immediately)
-  - `buy_token` - Fetch a Solana swap quote from the Phantom quotes API (can execute immediately)
-  - `sign_message` - Sign UTF-8 messages with automatic chain-specific routing
+- **Auto Re-authentication**: On session expiry (401/403), the server automatically triggers re-auth and retries the tool call
+- **Multi-Chain Support**: Solana and EVM chains (Ethereum, Base, Polygon, Arbitrum, and more)
+- **Chain-Specific Tools** (mirrors the browser-sdk API pattern):
+  - `get_connection_status` - Lightweight local check of wallet connection state (no API call)
+  - `get_wallet_addresses` - Get Solana, Ethereum, Bitcoin, and Sui addresses for the authenticated wallet
+  - `get_token_balances` - Get all fungible token balances with live USD prices
+  - `send_solana_transaction` - Sign and broadcast a pre-built Solana transaction
+  - `send_evm_transaction` - Sign and broadcast an EVM transaction (auto-fills nonce, gas, gasPrice)
+  - `sign_solana_message` - Sign a UTF-8 message on Solana
+  - `sign_evm_personal_message` - Sign a UTF-8 message via EIP-191 personal_sign on any EVM network
+  - `sign_evm_typed_data` - Sign EIP-712 typed structured data (DeFi permits, order signing)
+  - `transfer_tokens` - Transfer native tokens or fungible tokens on Solana and EVM chains (builds, signs, and sends)
+  - `buy_token` - Fetch a swap quote from Phantom's routing engine for Solana, EVM, and cross-chain swaps (optionally executes)
 
 ## Installation
 
@@ -187,9 +193,9 @@ This opens an interactive web UI where you can test tool calls without Claude De
 
 ## Network IDs Reference
 
-Network identifiers follow the CAIP-2/CAIP-10 format. Here are the supported networks:
-
 ### Solana
+
+Solana tools (`send_solana_transaction`, `sign_solana_message`) and the Solana path of `transfer_tokens` and `buy_token` use CAIP-2 network IDs:
 
 - Mainnet: `solana:mainnet` (or `solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp`)
 - Devnet: `solana:devnet` (or `solana:GH7ome3EiwEr7tu9JuTh2dpYWBJK3z69`)
@@ -197,14 +203,20 @@ Network identifiers follow the CAIP-2/CAIP-10 format. Here are the supported net
 
 ### Ethereum / EVM Chains
 
-- Ethereum Mainnet: `eip155:1`
-- Ethereum Sepolia: `eip155:11155111`
-- Polygon Mainnet: `eip155:137`
-- Polygon Amoy: `eip155:80002`
-- Base Mainnet: `eip155:8453`
-- Base Sepolia: `eip155:84532`
-- Arbitrum One: `eip155:42161`
-- Arbitrum Sepolia: `eip155:421614`
+All EVM tools (`send_evm_transaction`, `sign_evm_personal_message`, `sign_evm_typed_data`) use a plain numeric `chainId` — the same field returned by DeFi aggregators like LI.FI and 1inch:
+
+| Network          | `chainId`  |
+| ---------------- | ---------- |
+| Ethereum Mainnet | `1`        |
+| Ethereum Sepolia | `11155111` |
+| Polygon Mainnet  | `137`      |
+| Polygon Amoy     | `80002`    |
+| Base Mainnet     | `8453`     |
+| Base Sepolia     | `84532`    |
+| Arbitrum One     | `42161`    |
+| Arbitrum Sepolia | `421614`   |
+| Monad Mainnet    | `143`      |
+| Monad Testnet    | `10143`    |
 
 ### Bitcoin
 
@@ -218,12 +230,38 @@ Network identifiers follow the CAIP-2/CAIP-10 format. Here are the supported net
 ## Available Tools
 
 > **Execution Warning**
-> `transfer_tokens` always submits a transaction immediately, and `buy_token` can submit immediately when `execute: true`.
-> If you need finer control (simulation, review, multi-sig, or custom signing), build your own transaction and use `sign_transaction` instead.
+> `send_solana_transaction`, `send_evm_transaction`, `transfer_tokens`, and `buy_token` (when `execute: true`) all submit transactions immediately and irreversibly. Always verify parameters before calling these tools.
 
-### 1. get_wallet_addresses
+---
 
-Gets all blockchain addresses for the authenticated embedded wallet (Solana, Ethereum, Bitcoin, Sui).
+### 1. get_connection_status
+
+Lightweight check of the current Phantom wallet connection state. Does not make any network or API calls — reads local session state only. Use this to confirm the user is authenticated before other operations.
+
+**Parameters:** None
+
+**Response (connected):**
+
+```json
+{
+  "connected": true,
+  "walletId": "05307b6d-2d5a-43d6-8d11-08db650a169b",
+  "organizationId": "9b0ea123-5e7f-4dbe-88c5-7d769e2f8c8e"
+}
+```
+
+**Response (not connected):**
+
+```json
+{
+  "connected": false,
+  "reason": "No active session found. Call get_wallet_addresses to authenticate."
+}
+```
+
+### 2. get_wallet_addresses
+
+Gets all blockchain addresses for the authenticated embedded wallet (Solana, Ethereum, Bitcoin, Sui). Call this first to discover the wallet's addresses before using the chain-specific tools.
 
 **Parameters:**
 
@@ -244,45 +282,78 @@ Gets all blockchain addresses for the authenticated embedded wallet (Solana, Eth
   "walletId": "05307b6d-2d5a-43d6-8d11-08db650a169b",
   "organizationId": "9b0ea123-5e7f-4dbe-88c5-7d769e2f8c8e",
   "addresses": [
-    {
-      "addressType": "Solana",
-      "address": "H8FpYTgx4Uy9aF9Nk9fCTqKKFLYQ9KfC6UJhMkMDzCBh"
-    },
-    {
-      "addressType": "Ethereum",
-      "address": "0x8d8b06e017944f5951418b1182d119a376efb39d"
-    },
-    {
-      "addressType": "BitcoinSegwit",
-      "address": "bc1qkce5fvaxe759yu5xle5axlh8c7durjsx2wfhr9"
-    },
-    {
-      "addressType": "Sui",
-      "address": "0x039039cf69a336cb84e4c1dbcb3fa0c3f133d11b8146c6f7ed0d9f6817529a62"
-    }
+    { "addressType": "solana", "address": "H8FpYTgx4Uy9aF9Nk9fCTqKKFLYQ9KfC6UJhMkMDzCBh" },
+    { "addressType": "ethereum", "address": "0x8d8b06e017944f5951418b1182d119a376efb39d" },
+    { "addressType": "BitcoinSegwit", "address": "bc1qkce5fvaxe759yu5xle5axlh8c7durjsx2wfhr9" },
+    { "addressType": "sui", "address": "0x039039cf69a336cb84e4c1dbcb3fa0c3f133d11b8146c6f7ed0d9f6817529a62" }
   ]
 }
 ```
 
-### 2. sign_transaction
+---
 
-Signs a transaction using the authenticated embedded wallet. Supports Solana, Ethereum, Bitcoin, and other chains.
+### 3. get_token_balances
+
+Returns all fungible token balances (SOL + SPL tokens, and other chain tokens) for the authenticated wallet, with live USD prices and 24h price change.
+
+**Parameters:** None — automatically uses the authenticated wallet's Solana address.
+
+**Response:**
+
+```json
+{
+  "items": [
+    {
+      "__typename": "FungibleBalance",
+      "id": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp/slip44:501",
+      "caip19": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp/slip44:501",
+      "name": "Solana",
+      "symbol": "SOL",
+      "decimals": 9,
+      "spamStatus": "VERIFIED",
+      "logoUri": "https://...",
+      "totalQuantity": 1.5,
+      "totalQuantityString": "1500000000",
+      "price": {
+        "price": 142.53,
+        "priceChange24h": -2.31,
+        "lastUpdatedAt": "2026-03-03T12:00:00.000Z"
+      },
+      "queriedWalletBalances": [
+        {
+          "address": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU",
+          "quantity": 1.5,
+          "quantityString": "1500000000"
+        }
+      ]
+    }
+  ],
+  "cursor": "eyJhbGci..."
+}
+```
+
+To extract the mint address of an SPL token from `caip19`, take the part after `/token:`.
+
+---
+
+### 4. send_solana_transaction
+
+Signs and broadcasts a Solana transaction. Accepts a standard base64-encoded serialized transaction — the same format used by the Solana JSON-RPC API and returned by DeFi APIs (Jupiter, Phantom swap, etc.).
+
+Mirrors `sdk.solana.signAndSendTransaction(tx)` from the browser-sdk.
 
 **Parameters:**
 
-- `walletId` (optional, string): The wallet ID to use for signing (defaults to authenticated wallet)
-- `transaction` (required, string): The transaction to sign (format depends on chain: base64url for Solana, RLP-encoded hex for Ethereum)
-- `networkId` (required, string): Network identifier (e.g., "eip155:1" for Ethereum mainnet, "solana:mainnet" for Solana)
-- `derivationIndex` (optional, number): Derivation index for the account (default: 0)
-- `account` (optional, string): Specific account address to use for simulation/signing
+- `transaction` (required, string): Base64-encoded serialized Solana transaction (standard Solana JSON-RPC format — not base58)
+- `networkId` (optional, string): Solana network (e.g., `"solana:mainnet"`, `"solana:devnet"`). Defaults to `"solana:mainnet"`.
+- `walletId` (optional, string): Wallet ID to use (defaults to authenticated wallet)
+- `derivationIndex` (optional, number): Derivation index (default: 0)
 
 **Example:**
 
 ```json
 {
-  "transaction": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAQABAgMEBQYH...",
-  "networkId": "solana:mainnet",
-  "derivationIndex": 0
+  "transaction": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAQABAgME..."
 }
 ```
 
@@ -290,28 +361,251 @@ Signs a transaction using the authenticated embedded wallet. Supports Solana, Et
 
 ```json
 {
-  "signedTransaction": "base64url-encoded-signed-transaction"
+  "signature": "5oVZJ8b7k2rGm3rP3Gm5J3tFjR6eUpCkG6TGNKxgqQ7s...",
+  "networkId": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+  "account": "H8FpYTgx4Uy9aF9Nk9fCTqKKFLYQ9KfC6UJhMkMDzCBh"
 }
 ```
 
-### 3. transfer_tokens
+---
 
-Transfers SOL or SPL tokens on Solana by building, signing, and sending the transaction.
+### 5. send_evm_transaction
+
+Signs and broadcasts an EVM transaction using the standard `eth_sendTransaction` format. Pass in the transaction fields you know; `nonce`, `gas`, and `gasPrice` are optional — the server fetches any missing values from the network automatically via the RPC endpoint.
+
+Use `chainId` (a plain number) to identify the network — this matches the `chainId` field returned directly by DeFi aggregators like LI.FI and 1inch. Built-in public RPC defaults for Ethereum mainnet, Base, Polygon, Arbitrum, and testnets; pass `rpcUrl` to override.
 
 **Parameters:**
 
-- `walletId` (optional, string): The wallet ID to use for transfer (defaults to authenticated wallet)
-- `networkId` (required, string): Solana network identifier (e.g., "solana:mainnet", "solana:devnet")
-- `to` (required, string): Recipient Solana address
-- `amount` (required, string): Transfer amount as a string (e.g., "0.5" or "1000000")
-- `amountUnit` (optional, string): Amount unit (`ui` for SOL/token units, `base` for lamports/base units; default: `ui`)
-- `tokenMint` (optional, string): SPL token mint address (omit for SOL)
-- `decimals` (optional, number): Token decimals (optional for SPL tokens; fetched from chain if omitted)
-- `derivationIndex` (optional, number): Derivation index for the account (default: 0)
-- `rpcUrl` (optional, string): Solana RPC URL (defaults based on networkId)
-- `createAssociatedTokenAccount` (optional, boolean): Create destination ATA if missing (default: true)
+- `chainId` (required, number): EVM chain ID (e.g., `1` for Ethereum mainnet, `8453` for Base, `137` for Polygon, `42161` for Arbitrum). Use the `chainId` field directly from aggregator responses like LI.FI or 1inch.
+- `to` (optional, string): Recipient address (0x-prefixed)
+- `value` (optional, string): Amount in wei as a hex string (e.g., `"0x38D7EA4C68000"` for 0.001 ETH)
+- `data` (optional, string): Encoded contract call data (0x-prefixed hex). Omit for plain ETH transfers.
+- `gas` (optional, string): Gas limit as hex (e.g., `"0x5208"` for 21 000). Corresponds to `gasLimit` in LI.FI responses. If omitted, estimated via `eth_estimateGas` with a 20% buffer.
+- `gasPrice` (optional, string): Gas price in wei as hex (legacy transactions). If neither `gasPrice` nor `maxFeePerGas` is provided, fetched via `eth_gasPrice`.
+- `maxFeePerGas` (optional, string): Maximum total fee per gas in wei as hex (EIP-1559)
+- `maxPriorityFeePerGas` (optional, string): Maximum priority fee (tip) per gas in wei as hex (EIP-1559)
+- `nonce` (optional, string): Transaction nonce as hex. If omitted, fetched via `eth_getTransactionCount`.
+- `type` (optional, string): Transaction type (`"0x0"` for legacy, `"0x2"` for EIP-1559)
+- `walletId` (optional, string): Wallet ID to use (defaults to authenticated wallet)
+- `derivationIndex` (optional, number): Derivation index (default: 0)
+- `rpcUrl` (optional, string): Custom RPC endpoint. See default RPC table below.
 
-**Example (SOL):**
+**Example — plain ETH transfer (nonce, gas, and gasPrice auto-fetched):**
+
+```json
+{
+  "chainId": 1,
+  "to": "0x742d35Cc6634C0532925a3b8D4C8db86fB5C4A7E",
+  "value": "0x38D7EA4C68000"
+}
+```
+
+**Example — EIP-1559 transaction on Base:**
+
+```json
+{
+  "chainId": 8453,
+  "to": "0x742d35Cc6634C0532925a3b8D4C8db86fB5C4A7E",
+  "value": "0xDE0B6B3A7640000",
+  "maxFeePerGas": "0x6FC23AC00",
+  "maxPriorityFeePerGas": "0x77359400"
+}
+```
+
+**Example — contract call with explicit gas (e.g. from a LI.FI quote):**
+
+```json
+{
+  "chainId": 1,
+  "to": "0xContractAddress",
+  "data": "0xa9059cbb000000000000000000000000...",
+  "gas": "0x186A0",
+  "gasPrice": "0x4A817C800"
+}
+```
+
+**Response:**
+
+```json
+{
+  "hash": "0xabc123...",
+  "networkId": "eip155:1",
+  "from": "0x8d8b06e017944f5951418b1182d119a376efb39d",
+  "to": "0x742d35Cc6634C0532925a3b8D4C8db86fB5C4A7E"
+}
+```
+
+**Supported chain IDs and default RPC URLs:**
+
+| Network          | `chainId`  | Default RPC                    |
+| ---------------- | ---------- | ------------------------------ |
+| Ethereum Mainnet | `1`        | `https://cloudflare-eth.com`   |
+| Base Mainnet     | `8453`     | `https://mainnet.base.org`     |
+| Ethereum Sepolia | `11155111` | `https://sepolia.drpc.org`     |
+| Base Sepolia     | `84532`    | `https://sepolia.base.org`     |
+| Polygon Mainnet  | `137`      | `https://polygon-rpc.com`      |
+| Arbitrum One     | `42161`    | `https://arb1.arbitrum.io/rpc` |
+
+---
+
+### 6. sign_solana_message
+
+Signs a UTF-8 message with the Solana wallet. Returns a base58-encoded signature.
+
+Mirrors `sdk.solana.signMessage(message)` from the browser-sdk.
+
+**Parameters:**
+
+- `message` (required, string): The UTF-8 message to sign
+- `networkId` (required, string): Solana network (e.g., `"solana:mainnet"`)
+- `walletId` (optional, string): Wallet ID (defaults to authenticated wallet)
+- `derivationIndex` (optional, integer): Derivation index (default: 0)
+
+**Example:**
+
+```json
+{
+  "message": "Please sign this message to verify your wallet ownership.",
+  "networkId": "solana:mainnet"
+}
+```
+
+**Response:**
+
+```json
+{
+  "signature": "3XF1..."
+}
+```
+
+---
+
+### 7. sign_evm_personal_message
+
+Signs a UTF-8 message using EIP-191 `personal_sign` with the EVM wallet. Returns a hex-encoded signature.
+
+Mirrors `sdk.ethereum.signPersonalMessage(message, address)` from the browser-sdk.
+
+**Parameters:**
+
+- `message` (required, string): The UTF-8 message to sign
+- `chainId` (required, number): EVM chain ID (e.g., `1` for Ethereum mainnet, `8453` for Base, `137` for Polygon, `143` for Monad)
+- `walletId` (optional, string): Wallet ID (defaults to authenticated wallet)
+- `derivationIndex` (optional, integer): Derivation index (default: 0)
+
+**Example:**
+
+```json
+{
+  "message": "Sign in to My App\nNonce: 12345",
+  "chainId": 1
+}
+```
+
+**Example on Base:**
+
+```json
+{
+  "message": "Verify wallet ownership",
+  "chainId": 8453
+}
+```
+
+**Response:**
+
+```json
+{
+  "signature": "0x1b3a..."
+}
+```
+
+---
+
+### 8. sign_evm_typed_data
+
+Signs EIP-712 typed structured data with the EVM wallet. Returns a hex-encoded signature. Used for DeFi permit signatures, off-chain order signing (0x, Seaport, Uniswap permit2), and other structured off-chain approvals.
+
+Mirrors `sdk.ethereum.signTypedData(typedData, address)` from the browser-sdk.
+
+**Parameters:**
+
+- `typedData` (required, object): EIP-712 typed data with the following fields:
+  - `types` (object): Type definitions mapping type names to arrays of `{name, type}` fields
+  - `primaryType` (string): The primary type to sign (must be a key in `types`)
+  - `domain` (object): EIP-712 domain separator (e.g., `name`, `version`, `chainId`, `verifyingContract`)
+  - `message` (object): The structured data to sign, conforming to `primaryType`
+- `chainId` (required, number): EVM chain ID (e.g., `1` for Ethereum mainnet, `8453` for Base, `137` for Polygon, `143` for Monad)
+- `walletId` (optional, string): Wallet ID (defaults to authenticated wallet)
+- `derivationIndex` (optional, integer): Derivation index (default: 0)
+
+**Example — EIP-712 permit signature:**
+
+```json
+{
+  "typedData": {
+    "types": {
+      "EIP712Domain": [
+        { "name": "name", "type": "string" },
+        { "name": "version", "type": "string" },
+        { "name": "chainId", "type": "uint256" },
+        { "name": "verifyingContract", "type": "address" }
+      ],
+      "Permit": [
+        { "name": "owner", "type": "address" },
+        { "name": "spender", "type": "address" },
+        { "name": "value", "type": "uint256" },
+        { "name": "nonce", "type": "uint256" },
+        { "name": "deadline", "type": "uint256" }
+      ]
+    },
+    "primaryType": "Permit",
+    "domain": {
+      "name": "USD Coin",
+      "version": "2",
+      "chainId": 1,
+      "verifyingContract": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+    },
+    "message": {
+      "owner": "0x8d8b06e017944f5951418b1182d119a376efb39d",
+      "spender": "0x1111111254EEB25477B68fb85Ed929f73A960582",
+      "value": "1000000000",
+      "nonce": 0,
+      "deadline": 1893456000
+    }
+  },
+  "chainId": 1
+}
+```
+
+**Response:**
+
+```json
+{
+  "signature": "0x4f8a..."
+}
+```
+
+---
+
+### 9. transfer_tokens
+
+Transfers native tokens or fungible tokens on Solana and EVM chains. Builds, signs, and sends the transaction immediately.
+
+**Parameters:**
+
+- `walletId` (optional, string): Wallet ID to use (defaults to authenticated wallet)
+- `networkId` (required, string): Network — Solana (`"solana:mainnet"`, `"solana:devnet"`) or EVM (`"eip155:1"`, `"eip155:8453"`, `"eip155:137"`, `"eip155:42161"`, `"eip155:143"`)
+- `to` (required, string): Recipient address — Solana base58 or EVM `0x`-prefixed
+- `amount` (required, string|number): Transfer amount
+- `amountUnit` (optional, string): `"ui"` for human-readable units, `"base"` for atomic units (default: `"ui"`)
+- `tokenMint` (optional, string): Token contract — Solana SPL mint address or EVM ERC-20 `0x` contract. Omit for native token.
+- `decimals` (optional, number): Token decimals — optional on Solana (auto-fetched); required for ERC-20 when `amountUnit` is `"ui"`
+- `derivationIndex` (optional, number): Derivation index (default: 0)
+- `rpcUrl` (optional, string): RPC URL override (Solana or EVM)
+- `createAssociatedTokenAccount` (optional, boolean): Solana only — create destination ATA if missing (default: `true`)
+
+**Example — SOL transfer:**
 
 ```json
 {
@@ -322,15 +616,27 @@ Transfers SOL or SPL tokens on Solana by building, signing, and sending the tran
 }
 ```
 
-**Example (SPL Token):**
+**Example — ETH transfer on Base:**
 
 ```json
 {
-  "networkId": "solana:devnet",
-  "to": "H8FpYTgx4Uy9aF9Nk9fCTqKKFLYQ9KfC6UJhMkMDzCBh",
-  "tokenMint": "So11111111111111111111111111111111111111112",
-  "amount": "1.5",
+  "networkId": "eip155:8453",
+  "to": "0x742d35Cc6634C0532925a3b8D4C8db86fB5C4A7E",
+  "amount": "0.01",
   "amountUnit": "ui"
+}
+```
+
+**Example — ERC-20 (USDC on Ethereum):**
+
+```json
+{
+  "networkId": "eip155:1",
+  "to": "0x742d35Cc6634C0532925a3b8D4C8db86fB5C4A7E",
+  "tokenMint": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+  "amount": "100",
+  "amountUnit": "ui",
+  "decimals": 6
 }
 ```
 
@@ -339,113 +645,139 @@ Transfers SOL or SPL tokens on Solana by building, signing, and sending the tran
 ```json
 {
   "walletId": "05307b6d-2d5a-43d6-8d11-08db650a169b",
-  "networkId": "solana:mainnet",
-  "from": "H8FpYTgx4Uy9aF9Nk9fCTqKKFLYQ9KfC6UJhMkMDzCBh",
-  "to": "H8FpYTgx4Uy9aF9Nk9fCTqKKFLYQ9KfC6UJhMkMDzCBh",
+  "networkId": "eip155:8453",
+  "from": "0x8d8b06e017944f5951418b1182d119a376efb39d",
+  "to": "0x742d35Cc6634C0532925a3b8D4C8db86fB5C4A7E",
   "tokenMint": null,
-  "signature": "5oVZJ8b7k2rGm3rP3Gm5J3tFjR6eUpCkG6TGNKxgqQ7s...",
-  "rawTransaction": "base64url-encoded-signed-transaction"
+  "signature": "0xabc123...",
+  "rawTransaction": "0xrlpencoded..."
 }
 ```
 
-### 4. buy_token
+---
 
-Fetches a Solana swap quote from the Phantom quotes API. Optionally signs and sends the first quote transaction.
+### 10. buy_token
+
+Fetches an optimized swap quote from Phantom's routing engine. Supports same-chain Solana, same-chain EVM, and cross-chain swaps between Solana and EVM chains. Optionally signs and sends the first quote transaction immediately.
 
 **Parameters:**
 
-- `walletId` (optional, string): The wallet ID to use for the taker address (defaults to authenticated wallet)
-- `networkId` (optional, string): Solana network identifier (default: `solana:mainnet`)
-- `buyTokenMint` (optional, string): Mint address of the token to buy (omit if buying native SOL)
-- `buyTokenIsNative` (optional, boolean): Set true to buy native SOL (default: false)
-- `sellTokenMint` (optional, string): Mint address of the token to sell (omit if selling native SOL)
-- `sellTokenIsNative` (optional, boolean): Set true to sell native SOL (default: true if `sellTokenMint` not provided)
-- `amount` (required, string): Sell amount (e.g., "0.5" or "1000000")
-- `amountUnit` (optional, string): Amount unit (`ui` for token units, `base` for atomic units; default: `base`)
-- `buyTokenDecimals` (optional, number): Buy token decimals (used when `amountUnit` is `ui` and `exactOut` is true)
-- `sellTokenDecimals` (optional, number): Sell token decimals (used when `amountUnit` is `ui`)
-- `slippageTolerance` (optional, number): Slippage tolerance in percent (0-100)
-- `exactOut` (optional, boolean): Treat amount as buy amount instead of sell amount
+- `walletId` (optional, string): Wallet ID (defaults to authenticated wallet)
+- `sellChainId` (optional, string): CAIP-2 chain ID for the sell token (default: `"solana:mainnet"`). Supported: `solana:*` and `eip155:*` (e.g. `"eip155:1"`, `"eip155:8453"`, `"eip155:137"`).
+- `buyChainId` (optional, string): CAIP-2 chain ID for the buy token (defaults to `sellChainId`). Supported: `solana:*` and `eip155:*`. Set a different value for cross-chain swaps.
+- `buyTokenMint` (optional, string): Token to buy — Solana mint address or EVM `0x` contract. Omit for native token.
+- `buyTokenIsNative` (optional, boolean): Set `true` to buy the native token
+- `sellTokenMint` (optional, string): Token to sell — Solana mint address or EVM `0x` contract. Omit for native token.
+- `sellTokenIsNative` (optional, boolean): Set `true` to sell the native token (default: `true` if `sellTokenMint` not provided)
+- `amount` (required, string|number): Amount to swap
+- `amountUnit` (optional, string): `"ui"` for token units, `"base"` for atomic units (default: `"base"`)
+- `sellTokenDecimals` (optional, number): Required for EVM tokens when `amountUnit` is `"ui"`
+- `buyTokenDecimals` (optional, number): Required for EVM tokens when `amountUnit` is `"ui"` and `exactOut` is `true`
+- `slippageTolerance` (optional, number): Slippage tolerance in percent (0–100)
+- `exactOut` (optional, boolean): Treat `amount` as the buy amount instead of sell amount
 - `autoSlippage` (optional, boolean): Enable auto slippage calculation
-- `base64EncodedTx` (optional, boolean): Request base64-encoded transaction data in the quote response
-- `execute` (optional, boolean): If true, sign and send the first quote transaction after fetching
-- `taker` (optional, string): Taker address (defaults to wallet's Solana address)
-- `rpcUrl` (optional, string): Solana RPC URL (for mint decimals lookup when `amountUnit` is `ui`)
-- `quoteApiUrl` (optional, string): Quotes API URL override for debugging only. Leave unset for normal usage. Must be Phantom-compatible; do not use Jupiter endpoints such as `https://lite-api.jup.ag/swap/v1/quote`.
-- `derivationIndex` (optional, number): Derivation index for the taker address (default: 0)
+- `execute` (optional, boolean): Sign and send the initiation transaction immediately. For cross-chain swaps this sends the source-chain transaction; the bridge completes the destination side automatically.
+- `taker` (optional, string): Override taker address
+- `rpcUrl` (optional, string): Solana RPC URL (for Solana decimals lookup when `amountUnit` is `"ui"`)
+- `quoteApiUrl` (optional, string): Phantom-compatible quotes API URL override
+- `derivationIndex` (optional, number): Derivation index (default: 0)
 
-**Example:**
+**Example — Solana swap:**
 
 ```json
 {
-  "networkId": "solana:mainnet",
+  "sellChainId": "solana:mainnet",
   "sellTokenIsNative": true,
-  "buyTokenMint": "So11111111111111111111111111111111111111112",
-  "amount": "0.5",
+  "buyTokenMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  "amount": "0.1",
   "amountUnit": "ui",
   "slippageTolerance": 1,
   "execute": true
 }
 ```
 
-**Response:**
+**Example — EVM swap (ETH → USDC on Base):**
+
+```json
+{
+  "sellChainId": "eip155:8453",
+  "sellTokenIsNative": true,
+  "buyTokenMint": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+  "amount": "1000000000000000000",
+  "slippageTolerance": 1,
+  "execute": true
+}
+```
+
+**Example — cross-chain quote (SOL → ETH):**
+
+```json
+{
+  "sellChainId": "solana:mainnet",
+  "buyChainId": "eip155:1",
+  "sellTokenIsNative": true,
+  "buyTokenIsNative": true,
+  "amount": "1000000000"
+}
+```
+
+**Cross-chain response (`execute` absent or `false`):**
 
 ```json
 {
   "quoteRequest": {
-    "taker": {
-      "chainId": "solana:101",
-      "resourceType": "address",
-      "address": "H8FpYTgx4Uy9aF9Nk9fCTqKKFLYQ9KfC6UJhMkMDzCBh"
+    "taker": { "chainId": "solana:101", "resourceType": "address", "address": "H8FpYTgx4Uy..." },
+    "takerDestination": { "chainId": "eip155:1", "resourceType": "address", "address": "0x8d8b06e0..." },
+    "chainAddresses": {
+      "solana:101": "H8FpYTgx4Uy9aF9Nk9fCTqKKFLYQ9KfC6UJhMkMDzCBh",
+      "eip155:1": "0x8d8b06e017944f5951418b1182d119a376efb39d"
     },
-    "buyToken": {
-      "chainId": "solana:101",
-      "resourceType": "address",
-      "address": "So11111111111111111111111111111111111111112"
-    },
-    "sellToken": {
-      "chainId": "solana:101",
-      "resourceType": "nativeToken",
-      "slip44": "501"
-    },
-    "sellAmount": "500000000"
+    "sellToken": { "chainId": "solana:101", "resourceType": "nativeToken", "slip44": "501" },
+    "buyToken": { "chainId": "eip155:1", "resourceType": "nativeToken", "slip44": "60" },
+    "sellAmount": "1000000000"
   },
   "quoteResponse": {
-    "type": "quotes",
-    "quotes": []
-  },
-  "execution": {
-    "signature": "5oVZJ8b7k2rGm3rP3Gm5J3tFjR6eUpCkG6TGNKxgqQ7s...",
-    "rawTransaction": "base64url-encoded-signed-transaction"
+    "quotes": [
+      {
+        "sellAmount": "1000000000",
+        "buyAmount": "5800000000000000",
+        "steps": [
+          {
+            "chainId": "solana:101",
+            "type": "initiation",
+            "tool": { "name": "Relay", "logoUri": "https://..." },
+            "transactionData": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAQABAgME...",
+            "estimatedGas": "5000",
+            "requiredApprovals": []
+          },
+          {
+            "chainId": "eip155:1",
+            "type": "completion",
+            "tool": { "name": "Relay", "logoUri": "https://..." },
+            "estimatedGas": "21000"
+          }
+        ]
+      }
+    ]
   }
 }
 ```
 
-### 5. sign_message
+The steps array inside `quoteResponse.quotes[0].steps` describes the full bridge sequence:
 
-Signs a UTF-8 message using the authenticated embedded wallet. Automatically routes to the correct signing method based on the network (Ethereum vs other chains).
+- **Step 0** (`"chainId": sellChainId`) — the initiation transaction. When `execute: true`, this is signed and sent automatically. When `execute: false`, `transactionData` contains the serialized transaction for you to submit manually.
+- **Step 1+** (`"chainId": buyChainId`) — completion steps executed automatically by the bridge on the destination chain; no action required from the caller either way.
 
-**Parameters:**
-
-- `walletId` (optional, string): The wallet ID to use for signing (defaults to authenticated wallet)
-- `message` (required, string): The UTF-8 message to sign
-- `networkId` (required, string): Network identifier (e.g., "eip155:1" for Ethereum mainnet, "solana:mainnet" for Solana)
-- `derivationIndex` (optional, number): Derivation index for the account (default: 0)
-
-**Example:**
+**Response (`execute: true`, works for both same-chain and cross-chain):**
 
 ```json
 {
-  "message": "Hello, Phantom!",
-  "networkId": "solana:mainnet"
-}
-```
-
-**Response:**
-
-```json
-{
-  "signature": "base64url-encoded-signature"
+  "quoteRequest": { "...": "..." },
+  "quoteResponse": { "quotes": [{ "transactionData": ["..."] }] },
+  "execution": {
+    "signature": "0xabc123...",
+    "rawTransaction": "0xrlpencoded..."
+  }
 }
 ```
 
@@ -459,8 +791,7 @@ The MCP server supports the following environment variables:
 
 Enable debug logging to see detailed execution traces:
 
-- `DEBUG=1` - Enable debug logging
-- `PHANTOM_MCP_DEBUG=1` - Enable debug logging (alternative)
+- `PHANTOM_MCP_DEBUG=1` - Enable debug logging
 
 Debug logs are written to stderr and appear in Claude Desktop's MCP server logs.
 
@@ -474,10 +805,11 @@ Sessions are stored in `~/.phantom-mcp/session.json` with the following security
 
 **Session persistence:**
 
-- Sessions use stamper keypair authentication which doesn't expire
+- Sessions use stamper keypair authentication stored locally in `~/.phantom-mcp/session.json`
 - Stamper public key is registered with the auth server during SSO
 - Stamper secret key is used to sign all API requests
-- Sessions persist indefinitely until explicitly deleted
+- If the server rejects the session (401/403), the MCP server automatically triggers re-authentication and retries the tool call
+- Sessions persist until explicitly deleted or revoked server-side
 
 **To reset your session:**
 
@@ -641,15 +973,50 @@ You can test the MCP server locally before installing:
 yarn build
 
 # Run directly
-node dist/index.js
-
-# Or using the bin wrapper
-./bin/phantom-mcp
+node dist/cli.js
 ```
 
 ## Contributing
 
 This package is part of the [Phantom Connect SDK](https://github.com/phantom/phantom-connect-sdk) monorepo. Please refer to the main repository for contribution guidelines.
+
+### Environment Variables Reference
+
+All environment variables recognized by the MCP server, grouped by purpose:
+
+#### Authentication (required)
+
+| Variable                | Default | Description                                                                                               |
+| ----------------------- | ------- | --------------------------------------------------------------------------------------------------------- |
+| `PHANTOM_APP_ID`        | —       | App ID from the [Phantom Portal](https://phantom.com/portal). Required unless `PHANTOM_CLIENT_ID` is set. |
+| `PHANTOM_CLIENT_ID`     | —       | Alias for `PHANTOM_APP_ID` (backwards compatibility).                                                     |
+| `PHANTOM_CLIENT_SECRET` | —       | Client secret for confidential OAuth clients. Omit for public clients (PKCE-only).                        |
+
+#### OAuth / Auth URLs
+
+| Variable                   | Default                              | Description                                                   |
+| -------------------------- | ------------------------------------ | ------------------------------------------------------------- |
+| `PHANTOM_AUTH_BASE_URL`    | `https://auth.phantom.app`           | Base URL for the Phantom auth service (token exchange, DCR).  |
+| `PHANTOM_CONNECT_BASE_URL` | `https://connect.phantom.app`        | Base URL for the Phantom Connect SSO page (browser redirect). |
+| `PHANTOM_API_BASE_URL`     | `https://api.phantom.app/v1/wallets` | Base URL for the Phantom wallet API.                          |
+| `PHANTOM_CALLBACK_PORT`    | `8080`                               | Local port for the OAuth redirect callback server.            |
+| `PHANTOM_CALLBACK_PATH`    | `/callback`                          | Path for the OAuth redirect callback.                         |
+| `PHANTOM_SSO_PROVIDER`     | `google`                             | Default SSO provider (`google` or `apple`).                   |
+
+#### API / swap
+
+| Variable                 | Default                                  | Description                                                               |
+| ------------------------ | ---------------------------------------- | ------------------------------------------------------------------------- |
+| `PHANTOM_QUOTES_API_URL` | `https://api.phantom.app/swap/v2/quotes` | Override the swap quotes API endpoint used by `buy_token`. Must be HTTPS. |
+| `PHANTOM_VERSION`        | `mcp-server`                             | Value sent as the `X-Phantom-Version` request header.                     |
+
+#### Logging / debugging
+
+| Variable              | Default | Description                                                                                                                                    |
+| --------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PHANTOM_MCP_DEBUG`   | —       | Set to `1` or `true` to enable `DEBUG`-level log lines on stderr.                                                                              |
+| `DEBUG`               | —       | Also enables debug logging (same effect as `PHANTOM_MCP_DEBUG`).                                                                               |
+| `ENABLE_FILE_LOGGING` | —       | Set to `true` to write all log lines to `/tmp/phantom-mcp-debug.log` (async, non-blocking). Disabled by default to avoid unnecessary disk I/O. |
 
 ## License
 

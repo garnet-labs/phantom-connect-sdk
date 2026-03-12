@@ -1,25 +1,39 @@
 /**
  * MCP Tools Registry
  *
- * This module exports all available MCP tools for the Phantom wallet service.
+ * Chain-specific tools for Solana and EVM chains.
+ * Tools mirror the browser-sdk's chain-specific API pattern (sdk.solana.*, sdk.ethereum.*).
  */
 
 import { getWalletAddressesTool } from "./get-wallet-addresses.js";
-import { signTransactionTool } from "./sign-transaction.js";
-import { signMessageTool } from "./sign-message.js";
+import { getConnectionStatusTool } from "./get-connection-status.js";
+import { getTokenBalancesTool } from "./get-token-balances.js";
 import { transferTokensTool } from "./transfer-tokens.js";
 import { buyTokenTool } from "./buy-token.js";
+import { sendSolanaTransactionTool } from "./send-solana-transaction.js";
+import { sendEvmTransactionTool } from "./send-evm-transaction.js";
+import { signSolanaMessageTool } from "./sign-solana-message.js";
+import { signEvmPersonalMessageTool } from "./sign-evm-personal-message.js";
+import { signEvmTypedDataTool } from "./sign-evm-typed-data.js";
 import type { ToolHandler } from "./types.js";
 
 /**
  * Array of all available tools
  */
 export const tools: ToolHandler[] = [
+  // Wallet utilities
   getWalletAddressesTool,
-  signTransactionTool,
-  signMessageTool,
+  getConnectionStatusTool,
+  getTokenBalancesTool,
+  // Solana tools
+  sendSolanaTransactionTool,
+  signSolanaMessageTool,
   transferTokensTool,
   buyTokenTool,
+  // EVM tools
+  sendEvmTransactionTool,
+  signEvmPersonalMessageTool,
+  signEvmTypedDataTool,
 ];
 
 /**

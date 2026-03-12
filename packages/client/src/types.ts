@@ -1,11 +1,17 @@
 import { type NetworkId, type SdkAnalyticsHeaders } from "@phantom/constants";
 import type { Algorithm } from "@phantom/sdk-types";
 
+import type { Logger } from "@phantom/utils";
+
+export { type Logger } from "@phantom/utils";
+
 export interface PhantomClientConfig {
   apiBaseUrl: string;
   organizationId?: string;
   headers?: Partial<SdkAnalyticsHeaders>;
   walletType?: "server-wallet" | "user-wallet";
+  /** Optional logger — when provided, replaces console.error inside PhantomClient */
+  logger?: Logger;
 }
 
 export interface CreateWalletResult {

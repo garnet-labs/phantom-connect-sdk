@@ -254,7 +254,7 @@ describe("ExpoAuth2 React Native flow — end-to-end", () => {
   });
 
   it("stamp output produced after auth contains OIDC kind with idToken and algorithm", async () => {
-    // After authenticate(), the provider calls setIdToken() on the stamper,
+    // After authenticate(), the provider calls setTokens() on the stamper,
     // so subsequent stamps use OIDC format.
     const stamper = new ExpoAuth2Stamper("phantom-auth2-stamp-int");
     const provider = makeProvider(stamper);

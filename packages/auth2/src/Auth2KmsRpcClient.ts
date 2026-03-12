@@ -10,7 +10,7 @@ import axios from "axios";
 import bs58 from "bs58";
 import { Buffer } from "buffer";
 import { base64urlEncode } from "@phantom/base64url";
-import type { StamperWithKeyManagement } from "@phantom/sdk-types";
+import type { Auth2StamperWithKeyManagement } from "./index";
 
 const DEFAULT_KMS_API_VERSION = "2025-11-24";
 
@@ -31,7 +31,7 @@ export class Auth2KmsRpcClient {
   private readonly kmsApi: KMSRPCApi;
 
   constructor(
-    private readonly stamper: StamperWithKeyManagement,
+    private readonly stamper: Auth2StamperWithKeyManagement,
     options: Auth2KmsClientOptions,
   ) {
     const axiosInstance = axios.create();
@@ -41,10 +41,18 @@ export class Auth2KmsRpcClient {
       config.headers["x-app-id"] = options.appId;
       config.headers["x-api-version"] = DEFAULT_KMS_API_VERSION;
 
+      // Refresh the token if needed before stamping, so the id_token in the
+      // stamp body and the authorization header are always consistent.
+      const tokens = await this.stamper.getTokens();
+      if (tokens) {
+        config.headers["authorization"] = tokens.bearerToken;
+      }
+
       const requestBody =
         typeof config.data === "string" ? config.data : config.data === undefined ? "" : JSON.stringify(config.data);
       const stamp = await this.stamper.stamp({ data: Buffer.from(requestBody, "utf-8") });
       config.headers["x-phantom-stamp"] = stamp;
+
       return config;
     });
 

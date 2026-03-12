@@ -10,9 +10,10 @@ jest.mock("@phantom/auth2", () => ({
   createConnectStartUrl: mockCreateConnectStartUrl,
   exchangeAuthCode: jest.fn().mockResolvedValue({
     idToken: "id-token-value",
-    bearerToken: "Bearer id-token-value",
+    bearerToken: "Bearer access-token",
     authUserId: "auth-user-1",
     expiresInMs: 3_600_000,
+    refreshToken: "refresh-token-value",
   }),
   Auth2KmsRpcClient: jest.fn().mockImplementation(() => ({
     discoverOrganizationAndWalletId: mockDiscoverOrganizationAndWalletId,
@@ -76,7 +77,12 @@ function makeStamper(initialized = true) {
       publicKey: "7EcDshMsTHCs2f2HU2a3n36x9JkEVVenF9oQQGy5U3s",
       createdAt: Date.now(),
     }),
-    setIdToken: jest.fn().mockResolvedValue(undefined),
+    getTokens: jest.fn().mockResolvedValue({
+      idToken: "id-token-value",
+      bearerToken: "Bearer access-token",
+      refreshToken: "refresh-token-value",
+    }),
+    setTokens: jest.fn().mockResolvedValue(undefined),
     rotateKeyPair: jest.fn(),
     commitRotation: jest.fn(),
     rollbackRotation: jest.fn(),
@@ -330,7 +336,7 @@ describe("Auth2AuthProvider.resumeAuthFromRedirect()", () => {
 
     expect(storage.saveSession).toHaveBeenCalledWith(
       expect.objectContaining({
-        bearerToken: "Bearer id-token-value",
+        bearerToken: "Bearer access-token",
         authUserId: "auth-user-1",
         pkceCodeVerifier: undefined,
         status: "completed",
@@ -338,7 +344,7 @@ describe("Auth2AuthProvider.resumeAuthFromRedirect()", () => {
     );
   });
 
-  it("calls setIdToken with the idToken after successful token exchange", async () => {
+  it("calls setTokens with idToken, refreshToken, and expiresInMs after successful token exchange", async () => {
     const stamper = makeStamper(true);
     const provider = makeProvider(
       makeStorage({ ...SESSION }),
@@ -348,7 +354,12 @@ describe("Auth2AuthProvider.resumeAuthFromRedirect()", () => {
 
     await provider.resumeAuthFromRedirect("google");
 
-    expect(stamper.setIdToken).toHaveBeenCalledWith("id-token-value");
+    expect(stamper.setTokens).toHaveBeenCalledWith({
+      idToken: "id-token-value",
+      bearerToken: "Bearer access-token",
+      refreshToken: "refresh-token-value",
+      expiresInMs: 3_600_000,
+    });
   });
 
   it("returns a complete AuthResult on success", async () => {
@@ -361,7 +372,7 @@ describe("Auth2AuthProvider.resumeAuthFromRedirect()", () => {
       accountDerivationIndex: 0,
       expiresInMs: 3_600_000,
       authUserId: "auth-user-1",
-      bearerToken: "Bearer id-token-value",
+      bearerToken: "Bearer access-token",
     });
   });
 
@@ -382,7 +393,7 @@ describe("Auth2AuthProvider.resumeAuthFromRedirect()", () => {
   it("passes authUserId to discoverOrganizationAndWalletId", async () => {
     await makeSuccessProvider().resumeAuthFromRedirect("google");
 
-    expect(mockDiscoverOrganizationAndWalletId).toHaveBeenCalledWith("Bearer id-token-value", "auth-user-1");
+    expect(mockDiscoverOrganizationAndWalletId).toHaveBeenCalledWith("Bearer access-token", "auth-user-1");
   });
 
   it("throws when state param is absent (CSRF protection requires state)", async () => {

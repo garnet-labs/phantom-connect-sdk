@@ -7,7 +7,14 @@ import { parseOptionalNonNegativeInteger } from "../utils/params.js";
 
 export const getWalletAddressesTool: ToolHandler = {
   name: "get_wallet_addresses",
-  description: "Gets all blockchain addresses for the authenticated embedded wallet (Solana, Ethereum, Bitcoin, Sui)",
+  description:
+    "Returns all blockchain addresses (Solana, Ethereum, Bitcoin, Sui) for the authenticated Phantom embedded wallet. " +
+    "Call this first to confirm the user is connected and to get their wallet addresses before any transfer or swap. " +
+    "Response format: {walletId: string, organizationId: string, addresses: [{addressType: string, address: string}]} " +
+    "where addressType is one of 'solana', 'ethereum', 'bitcoin', 'sui'. " +
+    "Use the Solana address with send_solana_transaction, sign_solana_message, and transfer_tokens; " +
+    "use the Ethereum address with send_evm_transaction, sign_evm_personal_message, and sign_evm_typed_data. " +
+    "If this returns an auth error (session expired or revoked), call phantom_login to re-authenticate.",
   inputSchema: {
     type: "object",
     properties: {
@@ -20,6 +27,7 @@ export const getWalletAddressesTool: ToolHandler = {
   },
   annotations: {
     readOnlyHint: true,
+    idempotentHint: true,
     openWorldHint: true,
   },
   handler: async (params: Record<string, unknown>, context: ToolContext) => {

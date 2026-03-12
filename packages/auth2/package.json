@@ -1,6 +1,6 @@
 {
   "name": "@phantom/auth2",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Shared core utilities for the Auth2 OAuth2 PKCE flow",
   "repository": {
     "type": "git",

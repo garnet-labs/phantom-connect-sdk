@@ -1,7 +1,8 @@
 {
   "id": "phantom-openclaw-plugin",
-  "name": "Phantom Wallet Plugin",
-  "description": "Direct integration with Phantom wallet for blockchain operations - get addresses, sign messages, and sign transactions.",
+  "name": "Phantom Wallet",
+  "description": "Phantom embedded wallet for AI agents — check balances, transfer tokens, swap on Solana, and sign transactions and messages. Powered by Phantom, the leading multi-chain crypto wallet.",
+  "skills": ["./skills"],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

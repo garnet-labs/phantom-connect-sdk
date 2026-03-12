@@ -23,6 +23,48 @@ export interface ParsedTransaction {
 export type { ParsedSignatureResult, ParsedTransactionResult } from "./response-parsers";
 
 /**
+ * EIP-712 typed data structure.
+ * See: https://eips.ethereum.org/EIPS/eip-712
+ */
+export interface Eip712TypedData {
+  types: Record<string, { name: string; type: string }[]>;
+  primaryType: string;
+  domain: Record<string, unknown>;
+  message: Record<string, unknown>;
+}
+
+/**
+ * Validate that a value conforms to the EIP-712 typed data structure.
+ * Throws a descriptive error if the structure is invalid.
+ *
+ * @param data - Value to validate
+ * @throws Error if data is not a valid EIP-712 typed data object
+ */
+export function validateEip712TypedData(data: unknown): asserts data is Eip712TypedData {
+  if (typeof data !== "object" || data === null) {
+    throw new Error("typedData must be an object");
+  }
+
+  const obj = data as Record<string, unknown>;
+
+  if (typeof obj.types !== "object" || obj.types === null || Array.isArray(obj.types)) {
+    throw new Error("typedData.types must be an object mapping type names to field arrays");
+  }
+
+  if (typeof obj.primaryType !== "string" || !obj.primaryType) {
+    throw new Error("typedData.primaryType must be a non-empty string");
+  }
+
+  if (typeof obj.domain !== "object" || obj.domain === null || Array.isArray(obj.domain)) {
+    throw new Error("typedData.domain must be an object");
+  }
+
+  if (typeof obj.message !== "object" || obj.message === null || Array.isArray(obj.message)) {
+    throw new Error("typedData.message must be an object");
+  }
+}
+
+/**
  * Parse a transaction to KMS format based on network type
  * - Solana: base64url encoding
  * - EVM chains: hex encoding

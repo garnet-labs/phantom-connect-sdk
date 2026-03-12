@@ -35,9 +35,9 @@ const mockSubtle = {
 
 import {
   createCodeVerifier,
-  createSalt,
   createConnectStartUrl,
   exchangeAuthCode,
+  refreshToken,
   _createCodeChallenge,
   _deriveNonce,
   _parseJwtClaim,
@@ -163,7 +163,7 @@ describe("createConnectStartUrl", () => {
       exp: expect.any(Number),
       client_id: "my-client",
       redirect_uri: "https://app.example.com/callback",
-      scope: "openid",
+      scope: "openid offline_access",
       nonce: expect.any(String),
       code_challenge: expect.any(String),
       code_challenge_method: "S256",
@@ -233,9 +233,11 @@ describe("exchangeAuthCode", () => {
   }
 
   it("POSTs to /oauth2/token with form-encoded body", async () => {
+    const accessToken = makeJwt({ sub: "user-a" });
+    const idToken = "id-token";
     mockFetch().mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ id_token: makeJwt({ sub: "u1" }), token_type: "Bearer", expires_in: 3600 }),
+      json: async () => ({ access_token: accessToken, id_token: idToken, token_type: "Bearer", expires_in: 3600 }),
     });
 
     await exchangeAuthCode(baseOptions);
@@ -254,54 +256,29 @@ describe("exchangeAuthCode", () => {
   });
 
   it("returns idToken, bearerToken, authUserId, and expiresInMs on success", async () => {
-    const idToken = makeJwt({ auth_user_id: "auth-789" });
+    const accessToken = makeJwt({ sub: "user-a" });
+    const idToken = "id-token";
     mockFetch().mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ id_token: idToken, token_type: "Bearer", expires_in: 7200 }),
+      json: async () => ({ access_token: accessToken, id_token: idToken, token_type: "Bearer", expires_in: 7200 }),
     });
 
     const result = await exchangeAuthCode(baseOptions);
 
     expect(result.idToken).toBe(idToken);
-    expect(result.bearerToken).toBe(`Bearer ${idToken}`);
-    expect(result.authUserId).toBe("auth-789");
+    expect(result.bearerToken).toBe(`Bearer ${accessToken}`);
+    expect(result.authUserId).toBe("user-a");
     expect(result.expiresInMs).toBe(7200 * 1000);
   });
 
-  it("prefers auth_user_id claim over authUserId", async () => {
-    const idToken = makeJwt({ auth_user_id: "snake-id", authUserId: "camel-id" });
-    mockFetch().mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ id_token: idToken, token_type: "Bearer", expires_in: 0 }),
-    });
-
-    const result = await exchangeAuthCode(baseOptions);
-    expect(result.authUserId).toBe("snake-id");
-  });
-
-  it("falls back to authUserId claim when auth_user_id is absent", async () => {
-    mockFetch().mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ id_token: makeJwt({ authUserId: "camel-id" }), token_type: "Bearer", expires_in: 0 }),
-    });
-
-    expect((await exchangeAuthCode(baseOptions)).authUserId).toBe("camel-id");
-  });
-
-  it("falls back to sub claim when auth_user_id and authUserId are absent", async () => {
-    mockFetch().mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ id_token: makeJwt({ sub: "sub-user" }), token_type: "Bearer", expires_in: 0 }),
-    });
-
-    expect((await exchangeAuthCode(baseOptions)).authUserId).toBe("sub-user");
-  });
-
   it("returns authUserId as undefined when no matching claim exists", async () => {
+    const accessToken = makeJwt({ not_sub: "user-a" });
+    const idToken = "id-token";
     mockFetch().mockResolvedValueOnce({
       ok: true,
       json: async () => ({
-        id_token: makeJwt({ email: "user@example.com" }),
+        access_token: accessToken,
+        id_token: idToken,
         token_type: "Bearer",
         expires_in: 0,
       }),
@@ -311,29 +288,33 @@ describe("exchangeAuthCode", () => {
   });
 
   it("uses token_type from response in bearerToken", async () => {
-    const idToken = makeJwt({ sub: "u" });
+    const accessToken = makeJwt({ sub: "user-a" });
+    const idToken = "id-token";
     mockFetch().mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ id_token: idToken, token_type: "JWT", expires_in: 0 }),
+      json: async () => ({ access_token: accessToken, id_token: idToken, token_type: "JWT", expires_in: 0 }),
     });
 
-    expect((await exchangeAuthCode(baseOptions)).bearerToken).toBe(`JWT ${idToken}`);
+    expect((await exchangeAuthCode(baseOptions)).bearerToken).toBe(`JWT ${accessToken}`);
   });
 
   it("defaults to Bearer when token_type is absent", async () => {
-    const idToken = makeJwt({ sub: "u" });
+    const accessToken = makeJwt({ sub: "user-a" });
+    const idToken = "id-token";
     mockFetch().mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ id_token: idToken }), // no token_type
+      json: async () => ({ access_token: accessToken, id_token: idToken }), // no token_type
     });
 
     expect((await exchangeAuthCode(baseOptions)).bearerToken).toMatch(/^Bearer /);
   });
 
   it("sets expiresInMs to 0 when expires_in is absent", async () => {
+    const accessToken = makeJwt({ sub: "user-a" });
+    const idToken = "id-token";
     mockFetch().mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ id_token: makeJwt({ sub: "u" }) }),
+      json: async () => ({ access_token: accessToken, id_token: idToken }),
     });
 
     expect((await exchangeAuthCode(baseOptions)).expiresInMs).toBe(0);
@@ -347,22 +328,55 @@ describe("exchangeAuthCode", () => {
       text: async () => "invalid_grant",
     });
 
-    await expect(exchangeAuthCode(baseOptions)).rejects.toThrow("Auth2 token exchange failed (400 Bad Request)");
+    await expect(exchangeAuthCode(baseOptions)).rejects.toThrow("Auth2 token request failed (400 Bad Request)");
+  });
+
+  it("includes refresh_token from the response when present", async () => {
+    const accessToken = makeJwt({ sub: "user-a" });
+    const idToken = "id-token";
+    mockFetch().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        access_token: accessToken,
+        id_token: idToken,
+        token_type: "Bearer",
+        expires_in: 3600,
+        refresh_token: "rt-abc",
+      }),
+    });
+
+    const result = await exchangeAuthCode(baseOptions);
+
+    expect(result.refreshToken).toBe("rt-abc");
+  });
+
+  it("returns undefined refreshToken when refresh_token is absent", async () => {
+    const accessToken = makeJwt({ sub: "user-a" });
+    const idToken = "id-token";
+    mockFetch().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ access_token: accessToken, id_token: idToken, token_type: "Bearer", expires_in: 0 }),
+    });
+
+    expect((await exchangeAuthCode(baseOptions)).refreshToken).toBeUndefined();
   });
 
   it("throws when id_token is absent from successful response", async () => {
+    const accessToken = makeJwt({ sub: "user-a" });
     mockFetch().mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ access_token: "access", token_type: "Bearer" }),
+      json: async () => ({ access_token: accessToken, token_type: "Bearer" }),
     });
 
     await expect(exchangeAuthCode(baseOptions)).rejects.toThrow("did not return an id_token");
   });
 
   it("returns undefined authUserId for a malformed JWT without throwing", async () => {
+    const accessToken = "not.a.real.jwt";
+    const idToken = "not.a.real.jwt";
     mockFetch().mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ id_token: "not.a.real.jwt", token_type: "Bearer", expires_in: 0 }),
+      json: async () => ({ access_token: accessToken, id_token: idToken, token_type: "Bearer", expires_in: 0 }),
     });
 
     const result = await exchangeAuthCode(baseOptions);
@@ -371,13 +385,116 @@ describe("exchangeAuthCode", () => {
   });
 
   it("returns undefined authUserId for a JWT with non-string claim value", async () => {
-    const idToken = makeJwt({ sub: 12345 }); // number, not string
+    const accessToken = makeJwt({ sub: 12345 }); // number, not string
+    const idToken = "id-token";
     mockFetch().mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ id_token: idToken, token_type: "Bearer", expires_in: 0 }),
+      json: async () => ({ access_token: accessToken, id_token: idToken, token_type: "Bearer", expires_in: 0 }),
     });
 
     expect((await exchangeAuthCode(baseOptions)).authUserId).toBeUndefined();
+  });
+});
+
+describe("refreshToken", () => {
+  const baseOptions = {
+    authApiBaseUrl: "https://auth.example.com",
+    clientId: "client-id",
+    redirectUri: "https://app.example.com/cb",
+    refreshToken: "rt-existing",
+  };
+
+  function mockFetch(): jest.Mock {
+    return globalThis.fetch as jest.Mock;
+  }
+
+  it("POSTs to /oauth2/token with grant_type=refresh_token", async () => {
+    const accessToken = makeJwt({ sub: "user-a" });
+    const idToken = "id-token";
+    mockFetch().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        access_token: accessToken,
+        id_token: idToken,
+        token_type: "Bearer",
+        expires_in: 3600,
+        refresh_token: "rt-new",
+      }),
+    });
+
+    await refreshToken(baseOptions);
+
+    const [url, init] = mockFetch().mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://auth.example.com/oauth2/token");
+    const body = new URLSearchParams(init.body as string);
+    expect(body.get("grant_type")).toBe("refresh_token");
+    expect(body.get("refresh_token")).toBe("rt-existing");
+    expect(body.get("client_id")).toBe("client-id");
+  });
+
+  it("returns idToken, bearerToken, authUserId, expiresInMs, and refreshToken on success", async () => {
+    const accessToken = makeJwt({ sub: "user-refresh" });
+    const idToken = "id-token";
+    mockFetch().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        access_token: accessToken,
+        id_token: idToken,
+        token_type: "Bearer",
+        expires_in: 1800,
+        refresh_token: "rt-new",
+      }),
+    });
+
+    const result = await refreshToken(baseOptions);
+
+    expect(result.idToken).toBe(idToken);
+    expect(result.bearerToken).toBe(`Bearer ${accessToken}`);
+    expect(result.authUserId).toBe("user-refresh");
+    expect(result.expiresInMs).toBe(1800 * 1000);
+    expect(result.refreshToken).toBe("rt-new");
+  });
+
+  it("throws when the response does not include an access_token", async () => {
+    const idToken = "id-token";
+    mockFetch().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ id_token: idToken, token_type: "Bearer", expires_in: 0, refresh_token: "rt-new" }),
+    });
+
+    await expect(refreshToken(baseOptions)).rejects.toThrow("did not return an access_token");
+  });
+
+  it("throws when the response does not include a refresh_token", async () => {
+    const accessToken = makeJwt({ sub: "user-a" });
+    const idToken = "id-token";
+    mockFetch().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ access_token: accessToken, id_token: idToken, token_type: "Bearer", expires_in: 0 }),
+    });
+
+    await expect(refreshToken(baseOptions)).rejects.toThrow("did not return a refresh_token");
+  });
+
+  it("throws with status code when response is not ok", async () => {
+    mockFetch().mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      text: async () => "invalid_grant",
+    });
+
+    await expect(refreshToken(baseOptions)).rejects.toThrow("Auth2 token request failed (401 Unauthorized)");
+  });
+
+  it("throws when id_token is absent from the refresh response", async () => {
+    const accessToken = makeJwt({ sub: "user-a" });
+    mockFetch().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ access_token: accessToken, refresh_token: "rt-new", token_type: "Bearer" }),
+    });
+
+    await expect(refreshToken(baseOptions)).rejects.toThrow("did not return an id_token");
   });
 });
 
@@ -512,12 +629,5 @@ describe("_deriveNonce", () => {
     const b = await _deriveNonce(mockKeyPair, "salt-b");
 
     expect(a).not.toBe(b);
-  });
-});
-
-describe("createSalt", () => {
-  // NOTE: createSalt is currently stubbed to return '' pending IDPLAT-840.
-  it("returns an empty string (salt generation pending IDPLAT-840)", () => {
-    expect(createSalt()).toBe("");
   });
 });

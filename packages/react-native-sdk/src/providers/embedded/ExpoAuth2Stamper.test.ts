@@ -171,37 +171,39 @@ describe("ExpoAuth2Stamper", () => {
       const stamper = makeStamper();
       await stamper.init();
 
-      // stamp() should succeed without any additional setIdToken call.
+      // stamp() should succeed without any additional setTokens call.
       await expect(stamper.stamp({ type: "OIDC", data: Buffer.from("payload") })).resolves.toBeTruthy();
     });
   });
 
-  describe("setIdToken()", () => {
+  describe("setTokens()", () => {
     it("makes stamp() succeed after being called", async () => {
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(null);
 
       const stamper = makeStamper();
       await stamper.init();
 
-      // setIdToken reads the existing record to merge — return it
+      // setTokens reads the existing record to merge — return it
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord());
-      await stamper.setIdToken("my-token");
+      await stamper.setTokens({ idToken: "my-token", bearerToken: "Bearer my-token" });
 
       await expect(stamper.stamp({ type: "OIDC", data: Buffer.from("payload") })).resolves.toBeTruthy();
     });
 
-    it("persists the token to SecureStore alongside the key record", async () => {
+    it("persists idToken, bearerToken, and refreshToken to SecureStore", async () => {
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(null);
       const storageKey = "phantom-auth2-persist-test";
       const stamper = new ExpoAuth2Stamper(storageKey);
       await stamper.init();
 
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord());
-      await stamper.setIdToken("token-x");
+      await stamper.setTokens({ idToken: "token-x", bearerToken: "Bearer token-x", refreshToken: "refresh-x" });
 
       const lastSaveCall = (SecureStore.setItemAsync as jest.Mock).mock.calls.at(-1) as [string, string];
-      const saved = JSON.parse(lastSaveCall[1]) as { idToken?: string };
+      const saved = JSON.parse(lastSaveCall[1]) as { idToken?: string; bearerToken?: string; refreshToken?: string };
       expect(saved.idToken).toBe("token-x");
+      expect(saved.bearerToken).toBe("Bearer token-x");
+      expect(saved.refreshToken).toBe("refresh-x");
     });
 
     it("restores token in stamp output after a reload", async () => {
@@ -218,6 +220,45 @@ describe("ExpoAuth2Stamper", () => {
     });
   });
 
+  describe("getTokens()", () => {
+    it("returns null before setTokens() is called", async () => {
+      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(null);
+      const stamper = makeStamper();
+      await stamper.init();
+
+      expect(await stamper.getTokens()).toBeNull();
+    });
+
+    it("returns idToken, bearerToken, and refreshToken after setTokens()", async () => {
+      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(null);
+      const stamper = makeStamper();
+      await stamper.init();
+      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord());
+      await stamper.setTokens({
+        idToken: "id-tok",
+        bearerToken: "Bearer access-token",
+        refreshToken: "refresh-tok",
+      });
+
+      const tokens = await stamper.getTokens();
+
+      expect(tokens?.idToken).toBe("id-tok");
+      expect(tokens?.bearerToken).toBe("Bearer access-token");
+      expect(tokens?.refreshToken).toBe("refresh-tok");
+    });
+
+    it("returns null after clear()", async () => {
+      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(null);
+      const stamper = makeStamper();
+      await stamper.init();
+      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord());
+      await stamper.setTokens({ idToken: "id-tok", bearerToken: "Bearer access-token" });
+      await stamper.clear();
+
+      expect(await stamper.getTokens()).toBeNull();
+    });
+  });
+
   describe("stamp()", () => {
     it("throws if called before init()", async () => {
       const stamper = makeStamper();
@@ -231,7 +272,7 @@ describe("ExpoAuth2Stamper", () => {
       const stamper = makeStamper();
       await stamper.init();
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord());
-      await stamper.setIdToken("");
+      await stamper.setTokens({ idToken: "", bearerToken: "Bearer " });
 
       await stamper.stamp({ type: "OIDC", data: Buffer.from("payload") });
 
@@ -242,7 +283,7 @@ describe("ExpoAuth2Stamper", () => {
       );
     });
 
-    it("throws when called before setIdToken()", async () => {
+    it("throws when called before setTokens()", async () => {
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(null);
 
       const stamper = makeStamper();
@@ -251,13 +292,13 @@ describe("ExpoAuth2Stamper", () => {
       await expect(stamper.stamp({ type: "OIDC", data: Buffer.from("msg") })).rejects.toThrow("not initialized");
     });
 
-    it("returns an OIDC stamp with the id token from setIdToken()", async () => {
+    it("returns an OIDC stamp with the id token from setTokens()", async () => {
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(null);
 
       const stamper = makeStamper();
       await stamper.init();
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord());
-      await stamper.setIdToken("rn-id-token");
+      await stamper.setTokens({ idToken: "rn-id-token", bearerToken: "Bearer rn-id-token" });
 
       const stampStr = await stamper.stamp({ type: "OIDC", data: Buffer.from("payload") });
       const decoded = JSON.parse(Buffer.from(stampStr, "base64url").toString()) as {
@@ -283,7 +324,7 @@ describe("ExpoAuth2Stamper", () => {
       const stamper = makeStamper();
       await stamper.init();
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord());
-      await stamper.setIdToken("");
+      await stamper.setTokens({ idToken: "", bearerToken: "Bearer " });
 
       const stampStr = await stamper.stamp({ type: "OIDC", data: Buffer.from("x") });
       const decoded = JSON.parse(Buffer.from(stampStr, "base64url").toString()) as { publicKey: string };
@@ -326,7 +367,7 @@ describe("ExpoAuth2Stamper", () => {
       const stamper = makeStamper();
       await stamper.init();
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord());
-      await stamper.setIdToken("t");
+      await stamper.setTokens({ idToken: "t", bearerToken: "Bearer t" });
 
       await stamper.resetKeyPair();
 

@@ -71,12 +71,17 @@ export function PhantomProvider({ children, config, debugConfig, theme, appIcon,
     const urlParamsAccessor = new ExpoURLParamsAccessor();
     const logger = new ExpoLogger(debugConfig?.enabled || false);
 
-    const stamper = config.unstable__auth2Options
-      ? new ExpoAuth2Stamper(`phantom-auth2-${memoizedConfig.appId}`)
-      : new ReactNativeStamper({
-          keyPrefix: `phantom-rn-${memoizedConfig.appId}`,
-          appId: memoizedConfig.appId,
-        });
+    const stamper =
+      config.unstable__auth2Options && config.authOptions?.redirectUrl
+        ? new ExpoAuth2Stamper(`phantom-auth2-${memoizedConfig.appId}`, {
+            authApiBaseUrl: config.unstable__auth2Options.authApiBaseUrl,
+            clientId: config.unstable__auth2Options.clientId,
+            redirectUri: config.authOptions.redirectUrl,
+          })
+        : new ReactNativeStamper({
+            keyPrefix: `phantom-rn-${memoizedConfig.appId}`,
+            appId: memoizedConfig.appId,
+          });
 
     const authProvider =
       config.unstable__auth2Options &&

@@ -81,7 +81,7 @@ export class SessionManager {
   constructor(options: SessionManagerOptions = {}) {
     this.logger = new Logger("SessionManager");
     this.authBaseUrl = options.authBaseUrl ?? process.env.PHANTOM_AUTH_BASE_URL ?? "https://auth.phantom.app";
-    this.connectBaseUrl = options.connectBaseUrl;
+    this.connectBaseUrl = options.connectBaseUrl ?? process.env.PHANTOM_CONNECT_BASE_URL;
     this.apiBaseUrl = options.apiBaseUrl ?? process.env.PHANTOM_API_BASE_URL ?? "https://api.phantom.app/v1/wallets";
 
     const defaultPort = 8080;
@@ -144,6 +144,26 @@ export class SessionManager {
     }
 
     await this.authenticate();
+  }
+
+  /**
+   * Returns whether the session manager has an active, loaded session.
+   *
+   * This is a synchronous local check — it does NOT make a network call and
+   * cannot detect server-side session revocation. A truthy result means a
+   * session file was loaded; it does not guarantee the server will accept it.
+   *
+   * To detect an expired/revoked session:
+   *   1. Call any tool (e.g. get_wallet_addresses).
+   *   2. If the server returns HTTP 401/403, the MCP server automatically calls
+   *      resetSession() and retries once, opening the browser for re-auth.
+   *   3. If re-auth succeeds, the original tool is retried transparently.
+   *   4. If re-auth fails, the tool returns {error, code: "AUTH_EXPIRED"}.
+   *
+   * @returns true if a session is loaded in memory
+   */
+  isInitialized(): boolean {
+    return this.session !== null && this.client !== null;
   }
 
   /**
@@ -269,6 +289,7 @@ export class SessionManager {
         organizationId: this.session.organizationId,
         walletType: "user-wallet",
         headers,
+        logger: this.logger,
       },
       stamper,
     );

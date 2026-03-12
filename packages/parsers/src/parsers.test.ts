@@ -1,4 +1,4 @@
-import { parseToKmsTransaction } from "./index";
+import { parseToKmsTransaction, validateEip712TypedData } from "./index";
 import { base64urlDecode } from "@phantom/base64url";
 
 describe("Solana Transaction Parser", () => {
@@ -291,5 +291,75 @@ describe("Network Support", () => {
       expect(result.parsed).toBeDefined();
       expect(result.originalFormat).toBe("bytes");
     }
+  });
+});
+
+describe("validateEip712TypedData", () => {
+  const validTypedData = {
+    types: {
+      EIP712Domain: [{ name: "name", type: "string" }],
+      Mail: [
+        { name: "from", type: "string" },
+        { name: "to", type: "string" },
+      ],
+    },
+    primaryType: "Mail",
+    domain: { name: "Ether Mail" },
+    message: { from: "Alice", to: "Bob" },
+  };
+
+  it("should pass for a valid EIP-712 typed data object", () => {
+    expect(() => validateEip712TypedData(validTypedData)).not.toThrow();
+  });
+
+  it("should throw for null", () => {
+    expect(() => validateEip712TypedData(null)).toThrow("typedData must be an object");
+  });
+
+  it("should throw for non-object", () => {
+    expect(() => validateEip712TypedData("string")).toThrow("typedData must be an object");
+    expect(() => validateEip712TypedData(42)).toThrow("typedData must be an object");
+  });
+
+  it("should throw when types is missing", () => {
+    expect(() => validateEip712TypedData({ ...validTypedData, types: undefined })).toThrow(
+      "typedData.types must be an object",
+    );
+  });
+
+  it("should throw when types is an array", () => {
+    expect(() => validateEip712TypedData({ ...validTypedData, types: [] })).toThrow(
+      "typedData.types must be an object",
+    );
+  });
+
+  it("should throw when primaryType is missing", () => {
+    expect(() => validateEip712TypedData({ ...validTypedData, primaryType: undefined })).toThrow(
+      "typedData.primaryType must be a non-empty string",
+    );
+  });
+
+  it("should throw when primaryType is empty string", () => {
+    expect(() => validateEip712TypedData({ ...validTypedData, primaryType: "" })).toThrow(
+      "typedData.primaryType must be a non-empty string",
+    );
+  });
+
+  it("should throw when domain is missing", () => {
+    expect(() => validateEip712TypedData({ ...validTypedData, domain: undefined })).toThrow(
+      "typedData.domain must be an object",
+    );
+  });
+
+  it("should throw when message is missing", () => {
+    expect(() => validateEip712TypedData({ ...validTypedData, message: undefined })).toThrow(
+      "typedData.message must be an object",
+    );
+  });
+
+  it("should throw when message is an array", () => {
+    expect(() => validateEip712TypedData({ ...validTypedData, message: [] })).toThrow(
+      "typedData.message must be an object",
+    );
   });
 });

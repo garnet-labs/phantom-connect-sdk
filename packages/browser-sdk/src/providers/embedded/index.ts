@@ -26,7 +26,11 @@ export class EmbeddedProvider extends CoreEmbeddedProvider implements Provider {
     const storage = new BrowserStorage();
 
     const stamper = config.unstable__auth2Options
-      ? new Auth2Stamper(`phantom-auth2-${config.appId}`)
+      ? new Auth2Stamper(`phantom-auth2-${config.appId}`, {
+          authApiBaseUrl: config.unstable__auth2Options.authApiBaseUrl,
+          clientId: config.unstable__auth2Options.clientId,
+          redirectUri: config.authOptions?.redirectUrl ?? "",
+        })
       : new IndexedDbStamper({
           dbName: `phantom-embedded-sdk-${config.appId}`,
           storeName: "crypto-keys",

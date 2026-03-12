@@ -6,7 +6,6 @@ import type {
   URLParamsAccessor,
   EmbeddedProviderAuthType,
 } from "@phantom/embedded-provider-core";
-import type { StamperWithKeyManagement } from "@phantom/sdk-types";
 import {
   createCodeVerifier,
   createConnectStartUrl,
@@ -14,13 +13,8 @@ import {
   Auth2KmsRpcClient,
   type Auth2AuthProviderOptions,
   type Auth2KmsClientOptions,
+  type Auth2StamperWithKeyManagement,
 } from "@phantom/auth2";
-
-/** Stampers used with Auth2 must be able to expose their CryptoKeyPair for JAR signing. */
-interface Auth2StamperLike extends StamperWithKeyManagement {
-  getCryptoKeyPair(): CryptoKeyPair | null;
-  setIdToken(idToken: string): Promise<void>;
-}
 
 export class Auth2AuthProvider implements AuthProvider {
   private readonly auth2ProviderOptions: Auth2AuthProviderOptions;
@@ -32,7 +26,7 @@ export class Auth2AuthProvider implements AuthProvider {
   }
 
   constructor(
-    private readonly stamper: Auth2StamperLike,
+    private readonly stamper: Auth2StamperWithKeyManagement,
     private readonly storage: EmbeddedStorage,
     private readonly urlParamsAccessor: URLParamsAccessor,
     auth2ProviderOptions: Auth2AuthProviderOptions,
@@ -126,7 +120,7 @@ export class Auth2AuthProvider implements AuthProvider {
       throw new Error(`Auth2 callback error: ${description ?? error}`);
     }
 
-    const { idToken, bearerToken, authUserId, expiresInMs } = await exchangeAuthCode({
+    const { idToken, bearerToken, authUserId, expiresInMs, refreshToken } = await exchangeAuthCode({
       authApiBaseUrl: this.auth2ProviderOptions.authApiBaseUrl,
       clientId: this.auth2ProviderOptions.clientId,
       redirectUri: this.auth2ProviderOptions.redirectUri,
@@ -134,9 +128,9 @@ export class Auth2AuthProvider implements AuthProvider {
       codeVerifier,
     });
 
-    // Arm the stamper with the id token for KMS requests.
+    // Arm the stamper with the id token (and optional refresh token) for KMS requests.
     // Persisted to IndexedDB so auto-connect can restore it on the next page load.
-    await this.stamper.setIdToken(idToken);
+    await this.stamper.setTokens({ idToken, bearerToken, refreshToken, expiresInMs });
 
     // Persist the bearer token into the session — EmbeddedProvider will read it
     // in initializeClientFromSession() and inject it as the Authorization header.

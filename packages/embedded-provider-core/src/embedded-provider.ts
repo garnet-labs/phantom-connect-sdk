@@ -85,6 +85,13 @@ interface StamperResponse {
   expiresInMs: number;
 }
 
+const noopLogger: DebugLogger = {
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+  debug: () => {},
+};
+
 export class EmbeddedProvider {
   private config: EmbeddedProviderConfig;
   private platform: PlatformAdapter;
@@ -107,7 +114,7 @@ export class EmbeddedProvider {
 
   constructor(config: EmbeddedProviderConfig, platform: PlatformAdapter, logger: DebugLogger) {
     this.logger = logger;
-    this.logger.log("EMBEDDED_PROVIDER", "Initializing EmbeddedProvider", { config });
+    this.logger.debug("EMBEDDED_PROVIDER", "Initializing EmbeddedProvider", { config });
 
     // TODO: Re-enable app-wallet support once it's fully implemented
     if (config.embeddedWalletType === "app-wallet") {
@@ -139,21 +146,21 @@ export class EmbeddedProvider {
       this.eventListeners.set(event, new Set());
     }
     this.eventListeners.get(event)?.add(callback as EventCallback);
-    this.logger.log("EMBEDDED_PROVIDER", "Event listener added", { event });
+    this.logger.debug("EMBEDDED_PROVIDER", "Event listener added", { event });
   }
 
   off<K extends EmbeddedProviderEvent>(event: K, callback: EventCallback<EmbeddedProviderEventMap[K]>): void {
     const listeners = this.eventListeners.get(event);
     if (listeners) {
       listeners.delete(callback);
-      this.logger.log("EMBEDDED_PROVIDER", "Event listener removed", { event });
+      this.logger.debug("EMBEDDED_PROVIDER", "Event listener removed", { event });
     }
   }
 
   private emit(event: EmbeddedProviderEvent, data?: any): void {
     const listeners = this.eventListeners.get(event);
     if (listeners && listeners.size > 0) {
-      this.logger.log("EMBEDDED_PROVIDER", "Emitting event", { event, listenerCount: listeners.size, data });
+      this.logger.debug("EMBEDDED_PROVIDER", "Emitting event", { event, listenerCount: listeners.size, data });
       listeners.forEach(callback => {
         try {
           callback(data);
@@ -237,7 +244,7 @@ export class EmbeddedProvider {
   private async validateAndCleanSession(session: Session | null): Promise<Session | null> {
     if (!session) return null;
 
-    this.logger.log("EMBEDDED_PROVIDER", "Found existing session, validating", {
+    this.logger.debug("EMBEDDED_PROVIDER", "Found existing session, validating", {
       sessionId: session.sessionId,
       status: session.status,
       walletId: session.walletId,
@@ -297,12 +304,12 @@ export class EmbeddedProvider {
    * Returns ConnectResult if connection succeeds, null if should continue with new auth flow.
    */
   private async tryExistingConnection(isAutoConnect: boolean): Promise<ConnectResult | null> {
-    this.logger.log("EMBEDDED_PROVIDER", "Getting existing session");
+    this.logger.debug("EMBEDDED_PROVIDER", "Getting existing session");
     let session = await this.storage.getSession();
     session = await this.validateAndCleanSession(session);
 
     if (!session) {
-      this.logger.log("EMBEDDED_PROVIDER", "No existing session found");
+      this.logger.debug("EMBEDDED_PROVIDER", "No existing session found");
       return null;
     }
 
@@ -345,7 +352,7 @@ export class EmbeddedProvider {
 
     // Second priority: Check if we're resuming from a redirect
     // Only attempt redirect resume if there's no valid completed session
-    this.logger.log("EMBEDDED_PROVIDER", "No completed session found, checking for redirect resume");
+    this.logger.debug("EMBEDDED_PROVIDER", "No completed session found, checking for redirect resume");
     if (this.authProvider.resumeAuthFromRedirect) {
       const authResult = await this.authProvider.resumeAuthFromRedirect(session.authProvider);
       if (authResult) {
@@ -406,7 +413,7 @@ export class EmbeddedProvider {
     }
 
     if (!session.walletId || !session.organizationId || !session.stamperInfo) {
-      this.logger.log("EMBEDDED_PROVIDER", "Session missing required fields", {
+      this.logger.debug("EMBEDDED_PROVIDER", "Session missing required fields", {
         hasWalletId: !!session.walletId,
         hasOrganizationId: !!session.organizationId,
         hasStamperInfo: !!session.stamperInfo,
@@ -415,26 +422,26 @@ export class EmbeddedProvider {
     }
 
     if (session.status !== "completed") {
-      this.logger.log("EMBEDDED_PROVIDER", "Session not completed", { status: session.status });
+      this.logger.debug("EMBEDDED_PROVIDER", "Session not completed", { status: session.status });
       return false;
     }
 
     if (!session.authenticatorExpiresAt) {
-      this.logger.log("EMBEDDED_PROVIDER", "Session invalid - missing authenticator timing", {
+      this.logger.debug("EMBEDDED_PROVIDER", "Session invalid - missing authenticator timing", {
         sessionId: session.sessionId,
       });
       return false;
     }
 
     if (Date.now() >= session.authenticatorExpiresAt) {
-      this.logger.log("EMBEDDED_PROVIDER", "Authenticator expired, session invalid", {
+      this.logger.debug("EMBEDDED_PROVIDER", "Authenticator expired, session invalid", {
         authenticatorExpiresAt: new Date(session.authenticatorExpiresAt).toISOString(),
         now: new Date().toISOString(),
       });
       return false;
     }
 
-    this.logger.log("EMBEDDED_PROVIDER", "Session is valid", {
+    this.logger.debug("EMBEDDED_PROVIDER", "Session is valid", {
       sessionId: session.sessionId,
       walletId: session.walletId,
       authenticatorExpires: new Date(session.authenticatorExpiresAt).toISOString(),
@@ -449,7 +456,7 @@ export class EmbeddedProvider {
    */
   async autoConnect(): Promise<void> {
     try {
-      this.logger.log("EMBEDDED_PROVIDER", "Starting auto-connect attempt");
+      this.logger.debug("EMBEDDED_PROVIDER", "Starting auto-connect attempt");
 
       this.emit("connect_start", { source: "auto-connect" });
 
@@ -468,7 +475,7 @@ export class EmbeddedProvider {
         return;
       }
 
-      this.logger.log("EMBEDDED_PROVIDER", "Auto-connect failed: no valid session found");
+      this.logger.debug("EMBEDDED_PROVIDER", "Auto-connect failed: no valid session found");
 
       this.emit("connect_error", {
         error: "No valid session found",
@@ -494,13 +501,13 @@ export class EmbeddedProvider {
    */
 
   private async initializeStamper(): Promise<StamperResponse> {
-    this.logger.log("EMBEDDED_PROVIDER", "Initializing stamper");
+    this.logger.debug("EMBEDDED_PROVIDER", "Initializing stamper");
     await this.stamper.init();
 
     // Reset keypair to ensure we get a fresh unique keypair that doesn't conflict with existing ones
-    this.logger.log("EMBEDDED_PROVIDER", "Resetting keypair to avoid conflicts with existing keypairs");
+    this.logger.debug("EMBEDDED_PROVIDER", "Resetting keypair to avoid conflicts with existing keypairs");
     const stamperInfo = await this.stamper.resetKeyPair();
-    this.logger.log("EMBEDDED_PROVIDER", "Stamper initialized with fresh keypair", {
+    this.logger.debug("EMBEDDED_PROVIDER", "Stamper initialized with fresh keypair", {
       publicKey: stamperInfo.publicKey,
       keyId: stamperInfo.keyId,
       algorithm: this.stamper.algorithm,
@@ -524,6 +531,7 @@ export class EmbeddedProvider {
       headers: {
         ...(this.platform.analyticsHeaders || {}),
       },
+      logger: noopLogger,
     });
 
     // Create an organization for app-wallet
@@ -532,7 +540,7 @@ export class EmbeddedProvider {
 
     const organizationName = `${this.config.appId.substring(0, 8)}-${platformName}-${shortPubKey}`;
 
-    this.logger.log("EMBEDDED_PROVIDER", "Creating organization for app-wallet", {
+    this.logger.debug("EMBEDDED_PROVIDER", "Creating organization for app-wallet", {
       organizationName,
       publicKey: stamperInfo.publicKey,
       platform: platformName,
@@ -706,7 +714,7 @@ export class EmbeddedProvider {
     // Set flag to clear previous OAuth session on next login attempt
     // This ensures user will be prompted for fresh authentication
     await this.storage.setShouldClearPreviousSession(shouldClearPreviousSession);
-    this.logger.log("EMBEDDED_PROVIDER", "Set flag to clear previous session on next login");
+    this.logger.debug("EMBEDDED_PROVIDER", "Set flag to clear previous session on next login");
 
     await this.storage.clearSession();
 
@@ -880,7 +888,7 @@ export class EmbeddedProvider {
     const session = await this.storage.getSession();
     const derivationIndex = session?.accountDerivationIndex ?? 0;
 
-    this.logger.log("EMBEDDED_PROVIDER", "Parsed transaction for signing", {
+    this.logger.debug("EMBEDDED_PROVIDER", "Parsed transaction for signing", {
       walletId: this.walletId,
       transaction: parsedTransaction,
       derivationIndex: derivationIndex,
@@ -938,7 +946,7 @@ export class EmbeddedProvider {
     const session = await this.storage.getSession();
     const derivationIndex = session?.accountDerivationIndex ?? 0;
 
-    this.logger.log("EMBEDDED_PROVIDER", "Parsed transaction for signing", {
+    this.logger.debug("EMBEDDED_PROVIDER", "Parsed transaction for signing", {
       walletId: this.walletId,
       transaction: parsedTransaction,
       derivationIndex: derivationIndex,
@@ -1028,6 +1036,7 @@ export class EmbeddedProvider {
           headers: {
             ...(this.platform.analyticsHeaders || {}),
           },
+          logger: noopLogger,
         },
         this.stamper,
       );
@@ -1124,7 +1133,7 @@ export class EmbeddedProvider {
       authUserId: authResult.authUserId,
     };
 
-    this.logger.log("EMBEDDED_PROVIDER", "Saving Phantom session");
+    this.logger.debug("EMBEDDED_PROVIDER", "Saving Phantom session");
     await this.storage.saveSession(session);
 
     return session;
@@ -1165,7 +1174,7 @@ export class EmbeddedProvider {
       authenticatorExpiresAt: now + AUTHENTICATOR_EXPIRATION_TIME_MS,
       lastRenewalAttempt: undefined,
     };
-    this.logger.log("EMBEDDED_PROVIDER", "Saving temporary session before redirect", {
+    this.logger.debug("EMBEDDED_PROVIDER", "Saving temporary session before redirect", {
       sessionId: tempSession.sessionId,
       tempWalletId: tempSession.walletId,
     });
@@ -1223,7 +1232,7 @@ export class EmbeddedProvider {
         const now = Date.now();
         tempSession.authenticatorCreatedAt = now;
         tempSession.authenticatorExpiresAt = now + authResult.expiresInMs;
-        this.logger.log("EMBEDDED_PROVIDER", "Updated authenticator expiration from immediate auth response", {
+        this.logger.debug("EMBEDDED_PROVIDER", "Updated authenticator expiration from immediate auth response", {
           expiresInMs: authResult.expiresInMs,
           expiresAt: new Date(tempSession.authenticatorExpiresAt).toISOString(),
         });
@@ -1233,7 +1242,7 @@ export class EmbeddedProvider {
 
       // Clear the logout flag after successful authentication (React Native case)
       await this.storage.setShouldClearPreviousSession(false);
-      this.logger.log("EMBEDDED_PROVIDER", "Cleared logout flag after successful authentication");
+      this.logger.debug("EMBEDDED_PROVIDER", "Cleared logout flag after successful authentication");
 
       return tempSession; // Return the auth result for further processing
     }
@@ -1266,7 +1275,7 @@ export class EmbeddedProvider {
       const now = Date.now();
       session.authenticatorCreatedAt = now;
       session.authenticatorExpiresAt = now + authResult.expiresInMs;
-      this.logger.log("EMBEDDED_PROVIDER", "Updated authenticator expiration from auth response", {
+      this.logger.debug("EMBEDDED_PROVIDER", "Updated authenticator expiration from auth response", {
         expiresInMs: authResult.expiresInMs,
         expiresAt: new Date(session.authenticatorExpiresAt).toISOString(),
       });
@@ -1277,7 +1286,7 @@ export class EmbeddedProvider {
     // Clear the logout flag after successful authentication
     // This allows future logins to use OAuth session refresh
     await this.storage.setShouldClearPreviousSession(false);
-    this.logger.log("EMBEDDED_PROVIDER", "Cleared logout flag after successful authentication");
+    this.logger.debug("EMBEDDED_PROVIDER", "Cleared logout flag after successful authentication");
 
     await this.initializeClientFromSession(session);
 
@@ -1315,7 +1324,7 @@ export class EmbeddedProvider {
 
     const timeUntilExpiry = session.authenticatorExpiresAt - now;
 
-    this.logger.log("EMBEDDED_PROVIDER", "Checking authenticator expiration", {
+    this.logger.debug("EMBEDDED_PROVIDER", "Checking authenticator expiration", {
       expiresAt: new Date(session.authenticatorExpiresAt).toISOString(),
       timeUntilExpiry,
     });
@@ -1336,7 +1345,7 @@ export class EmbeddedProvider {
    */
   private async initializeClientFromSession(session: Session): Promise<void> {
     // Create client from session
-    this.logger.log("EMBEDDED_PROVIDER", "Initializing PhantomClient from session", {
+    this.logger.debug("EMBEDDED_PROVIDER", "Initializing PhantomClient from session", {
       organizationId: session.organizationId,
       walletId: session.walletId,
       appId: session.appId,

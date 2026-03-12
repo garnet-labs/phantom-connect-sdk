@@ -909,3 +909,117 @@ describe("PhantomClient Spending Limits Integration", () => {
     });
   });
 });
+
+describe("PhantomClient rpc_submission_result envelope handling", () => {
+  let client: PhantomClient;
+  let mockKmsPost: jest.Mock;
+
+  beforeEach(() => {
+    const mockAxiosInstance = {
+      post: jest.fn(),
+      interceptors: { request: { use: jest.fn() } },
+    };
+    (axios.create as jest.Mock).mockReturnValue(mockAxiosInstance);
+
+    client = new PhantomClient({
+      apiBaseUrl: "https://api.phantom.app",
+      organizationId: "test-org-id",
+      headers: {},
+    });
+
+    mockKmsPost = jest.fn();
+    Object.defineProperty(client, "kmsApi", { value: { postKmsRpc: mockKmsPost }, writable: true });
+    Object.defineProperty(client, "getOrganization", { value: jest.fn().mockResolvedValue(null), writable: true });
+  });
+
+  const baseParams = {
+    walletId: "wallet-1",
+    transaction: "0xrlpencoded",
+    networkId: NetworkId.ETHEREUM_MAINNET,
+  };
+
+  const signedTxResult = { transaction: "0xsigned", publicKey: "pubkey", address: "0xaddr", signature: "sig" };
+
+  it("unwraps JSON-RPC envelope and returns hash on success", async () => {
+    mockKmsPost.mockResolvedValue({
+      data: {
+        result: signedTxResult,
+        rpc_submission_result: {
+          result: { jsonrpc: "2.0", id: "fe05e812", result: "0xec05059484d6a913feff03b51f2ac262" },
+        },
+      },
+    });
+
+    const result = await client.signAndSendTransaction(baseParams);
+    expect(result.hash).toBe("0xec05059484d6a913feff03b51f2ac262");
+  });
+
+  it("throws when JSON-RPC envelope contains an error", async () => {
+    mockKmsPost.mockResolvedValue({
+      data: {
+        result: signedTxResult,
+        rpc_submission_result: {
+          result: {
+            jsonrpc: "2.0",
+            id: "4d6a87fa",
+            error: {
+              code: -32000,
+              message: "transaction gas price below minimum: gas tip cap 0, minimum needed 25000000000",
+            },
+          },
+        },
+      },
+    });
+
+    await expect(client.signAndSendTransaction(baseParams)).rejects.toThrow(
+      "Transaction broadcast failed: transaction gas price below minimum",
+    );
+  });
+
+  it("prefers error.data over error.message when both are present", async () => {
+    mockKmsPost.mockResolvedValue({
+      data: {
+        result: signedTxResult,
+        rpc_submission_result: {
+          result: {
+            jsonrpc: "2.0",
+            id: "1",
+            error: { code: -32000, message: "execution reverted", data: "0xdeadbeef" },
+          },
+        },
+      },
+    });
+
+    await expect(client.signAndSendTransaction(baseParams)).rejects.toThrow("Transaction broadcast failed: 0xdeadbeef");
+  });
+
+  it("handles plain string result (wallet service returns hash directly without JSON-RPC envelope) as hash", async () => {
+    mockKmsPost.mockResolvedValue({
+      data: {
+        result: signedTxResult,
+        rpc_submission_result: { result: "0xlegacyhash" },
+      },
+    });
+
+    const result = await client.signAndSendTransaction(baseParams);
+    expect(result.hash).toBe("0xlegacyhash");
+  });
+
+  it("returns undefined hash when rpc_submission_result is absent", async () => {
+    mockKmsPost.mockResolvedValue({
+      data: { result: signedTxResult },
+    });
+
+    const result = await client.signAndSendTransaction(baseParams);
+    expect(result.hash).toBeUndefined();
+  });
+
+  it("returns undefined hash when rpc_submission_result.result is null", async () => {
+    mockKmsPost.mockResolvedValue({
+      data: { result: signedTxResult, rpc_submission_result: { result: null } },
+    });
+
+    const result = await client.signAndSendTransaction(baseParams);
+    expect(result.hash).toBeUndefined();
+  });
+});

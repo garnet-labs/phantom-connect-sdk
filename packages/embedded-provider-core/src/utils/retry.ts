@@ -11,7 +11,7 @@ export async function retryWithBackoff<T>(
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      logger.log("EMBEDDED_PROVIDER", `Attempting ${operationName}`, {
+      logger.debug("EMBEDDED_PROVIDER", `Attempting ${operationName}`, {
         attempt,
         maxRetries,
       });
@@ -33,7 +33,7 @@ export async function retryWithBackoff<T>(
 
       // Exponential backoff: 1s, 2s, 4s
       const delay = baseDelay * Math.pow(2, attempt - 1);
-      logger.log("EMBEDDED_PROVIDER", `Retrying ${operationName} in ${delay}ms`, {
+      logger.debug("EMBEDDED_PROVIDER", `Retrying ${operationName} in ${delay}ms`, {
         attempt: attempt + 1,
         delay,
       });

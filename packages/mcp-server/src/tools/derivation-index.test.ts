@@ -1,5 +1,5 @@
-import { signMessageTool } from "./sign-message";
-import { signTransactionTool } from "./sign-transaction";
+import { signSolanaMessageTool } from "./sign-solana-message";
+import { sendSolanaTransactionTool } from "./send-solana-transaction";
 import { getWalletAddressesTool } from "./get-wallet-addresses";
 import { transferTokensTool } from "./transfer-tokens";
 import { buyTokenTool } from "./buy-token";
@@ -42,10 +42,10 @@ describe("derivationIndex coercion", () => {
     jest.restoreAllMocks();
   });
 
-  it("coerces string derivationIndex for sign_message", async () => {
+  it("coerces string derivationIndex for sign_solana_message", async () => {
     const context = createContext();
 
-    await signMessageTool.handler(
+    await signSolanaMessageTool.handler(
       {
         message: "hello",
         networkId: "solana:mainnet",
@@ -62,21 +62,25 @@ describe("derivationIndex coercion", () => {
     );
   });
 
-  it("coerces string derivationIndex for sign_transaction", async () => {
-    const context = createContext();
+  it("coerces string derivationIndex for send_solana_transaction", async () => {
+    const context = createContext({
+      getWalletAddresses: jest
+        .fn()
+        .mockResolvedValue([{ addressType: "solana", address: "11111111111111111111111111111111" }]),
+    });
+    const validTx = Buffer.from(new Uint8Array([1, 2, 3])).toString("base64");
 
-    await signTransactionTool.handler(
+    await sendSolanaTransactionTool.handler(
       {
-        transaction: "tx-data",
+        transaction: validTx,
         networkId: "solana:mainnet",
-        account: "11111111111111111111111111111111",
         derivationIndex: "0",
       },
       context,
     );
 
-    const signTransaction = context.client.signTransaction as jest.Mock;
-    expect(signTransaction).toHaveBeenCalledWith(
+    const signAndSendTransaction = context.client.signAndSendTransaction as jest.Mock;
+    expect(signAndSendTransaction).toHaveBeenCalledWith(
       expect.objectContaining({
         derivationIndex: 0,
       }),

@@ -124,23 +124,23 @@ describe("Auth2Stamper", () => {
       const dbName = `restore-db-${Date.now()}`;
       const stamper1 = new Auth2Stamper(dbName);
       await stamper1.init();
-      await stamper1.setIdToken("persisted-token");
+      await stamper1.setTokens({ idToken: "persisted-token", bearerToken: "Bearer persisted-token" });
 
       // A new stamper instance loads from the same DB — simulates app reload.
       const stamper2 = new Auth2Stamper(dbName);
       await stamper2.init();
 
-      // Calling stamp() should succeed without any additional setIdToken call.
+      // Calling stamp() should succeed without any additional setTokens call.
       await expect(stamper2.stamp({ type: "OIDC", data: Buffer.from("payload") })).resolves.toBeTruthy();
     });
   });
 
-  describe("setIdToken()", () => {
+  describe("setTokens()", () => {
     it("makes stamp() succeed after being called", async () => {
       const stamper = makeStamper();
       await stamper.init();
 
-      await stamper.setIdToken("my-token");
+      await stamper.setTokens({ idToken: "my-token", bearerToken: "Bearer my-token" });
 
       await expect(stamper.stamp({ type: "OIDC", data: Buffer.from("payload") })).resolves.toBeTruthy();
     });
@@ -149,7 +149,7 @@ describe("Auth2Stamper", () => {
       const dbName = `persist-db-${Date.now()}`;
       const stamper = new Auth2Stamper(dbName);
       await stamper.init();
-      await stamper.setIdToken("auto-connect-token");
+      await stamper.setTokens({ idToken: "auto-connect-token", bearerToken: "Bearer auto-connect-token" });
 
       const reloaded = new Auth2Stamper(dbName);
       await reloaded.init();
@@ -159,6 +159,60 @@ describe("Auth2Stamper", () => {
         idToken: string;
       };
       expect(decoded.idToken).toBe("auto-connect-token");
+    });
+
+    it("persists bearerToken and refreshToken to IndexedDB", async () => {
+      const dbName = `persist-tokens-db-${Date.now()}`;
+      const stamper = new Auth2Stamper(dbName);
+      await stamper.init();
+      await stamper.setTokens({
+        idToken: "id-tok",
+        bearerToken: "Bearer access-token",
+        refreshToken: "refresh-tok",
+        expiresInMs: 3_600_000,
+      });
+
+      const reloaded = new Auth2Stamper(dbName);
+      await reloaded.init();
+
+      const tokens = await reloaded.getTokens();
+
+      expect(tokens?.bearerToken).toBe("Bearer access-token");
+      expect(tokens?.refreshToken).toBe("refresh-tok");
+    });
+  });
+
+  describe("getTokens()", () => {
+    it("returns null before setTokens() is called", async () => {
+      const stamper = makeStamper();
+      await stamper.init();
+
+      expect(await stamper.getTokens()).toBeNull();
+    });
+
+    it("returns idToken, bearerToken, and refreshToken after setTokens()", async () => {
+      const stamper = makeStamper();
+      await stamper.init();
+      await stamper.setTokens({
+        idToken: "id-tok",
+        bearerToken: "Bearer access-token",
+        refreshToken: "refresh-tok",
+      });
+
+      const tokens = await stamper.getTokens();
+
+      expect(tokens?.idToken).toBe("id-tok");
+      expect(tokens?.bearerToken).toBe("Bearer access-token");
+      expect(tokens?.refreshToken).toBe("refresh-tok");
+    });
+
+    it("returns null after clear()", async () => {
+      const stamper = makeStamper();
+      await stamper.init();
+      await stamper.setTokens({ idToken: "id-tok", bearerToken: "Bearer access-token" });
+      await stamper.clear();
+
+      expect(await stamper.getTokens()).toBeNull();
     });
   });
 
@@ -172,7 +226,7 @@ describe("Auth2Stamper", () => {
     it("signs the data with ECDSA P-256 / SHA-256", async () => {
       const stamper = makeStamper();
       await stamper.init();
-      await stamper.setIdToken("");
+      await stamper.setTokens({ idToken: "", bearerToken: "Bearer access-token" });
 
       const data = Buffer.from("test message");
       await stamper.stamp({ type: "OIDC", data });
@@ -184,18 +238,18 @@ describe("Auth2Stamper", () => {
       );
     });
 
-    it("throws when called before setIdToken()", async () => {
+    it("throws when called before setTokens()", async () => {
       const stamper = makeStamper();
       await stamper.init();
 
       await expect(stamper.stamp({ type: "OIDC", data: Buffer.from("payload") })).rejects.toThrow("not initialized");
     });
 
-    it("returns an OIDC stamp with the id token from setIdToken()", async () => {
+    it("returns an OIDC stamp with the id token from setTokens()", async () => {
       const stamper = makeStamper();
       await stamper.init();
 
-      await stamper.setIdToken("test-id-token");
+      await stamper.setTokens({ idToken: "test-id-token", bearerToken: "Bearer test-id-token" });
 
       const stampStr = await stamper.stamp({ type: "OIDC", data: Buffer.from("payload") });
       const decoded = JSON.parse(Buffer.from(stampStr, "base64url").toString("utf-8")) as {
@@ -218,7 +272,7 @@ describe("Auth2Stamper", () => {
     it("uses the stored public key (base64url of raw P-256 bytes) in the OIDC stamp", async () => {
       const stamper = makeStamper();
       await stamper.init();
-      await stamper.setIdToken("");
+      await stamper.setTokens({ idToken: "", bearerToken: "Bearer " });
 
       const stampStr = await stamper.stamp({ type: "OIDC", data: Buffer.from("data") });
       const decoded = JSON.parse(Buffer.from(stampStr, "base64url").toString("utf-8")) as {
@@ -232,7 +286,7 @@ describe("Auth2Stamper", () => {
     it("works with empty data", async () => {
       const stamper = makeStamper();
       await stamper.init();
-      await stamper.setIdToken("");
+      await stamper.setTokens({ idToken: "", bearerToken: "Bearer " });
       await expect(stamper.stamp({ type: "OIDC", data: Buffer.from("") })).resolves.toBeTruthy();
     });
   });
@@ -260,7 +314,7 @@ describe("Auth2Stamper", () => {
     it("clears the id token", async () => {
       const stamper = makeStamper();
       await stamper.init();
-      await stamper.setIdToken("t");
+      await stamper.setTokens({ idToken: "t", bearerToken: "Bearer t" });
 
       await stamper.resetKeyPair();
 

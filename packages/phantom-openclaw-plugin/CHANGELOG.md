@@ -1,5 +1,18 @@
 # @phantom/openclaw-plugin
 
+## 0.2.0
+
+### Minor Changes
+
+- e5401de: Updated MCP interfaces to support EVM transactions, added balance fetching.
+
+### Patch Changes
+
+- 3b452b7: Updated descriptions and added new get balances method. Fixed openclaw plugin identifier
+- Updated dependencies [3b452b7]
+- Updated dependencies [e5401de]
+  - @phantom/mcp-server@0.2.0
+
 ## 0.1.8
 
 ### Patch Changes

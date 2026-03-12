@@ -3,8 +3,8 @@
   "name": "phantom-mcp",
   "display_name": "Phantom Wallet",
   "version": "0.1.6",
-  "description": "Access your Phantom embedded wallet from Claude: get addresses, sign transactions, transfer tokens, and swap on Solana.",
-  "long_description": "The Phantom MCP server gives Claude direct access to Phantom embedded wallet operations. Authenticate once with Google or Apple, and Claude can:\n\n- **Get wallet addresses** across Solana, Ethereum, Bitcoin, and Sui\n- **Sign transactions** on any supported chain\n- **Transfer tokens** — SOL or any SPL token on Solana\n- **Swap tokens** — fetch quotes and execute swaps via Phantom's quotes API\n- **Sign messages** for authentication or proof-of-ownership flows\n\nUses OAuth + PKCE for secure authentication. Session is stored locally at `~/.phantom-mcp/session.json` and persists across restarts.",
+  "description": "Phantom embedded wallet for AI agents: check balances, transfer tokens, swap on Solana, sign transactions and messages. Powered by Phantom — the leading multi-chain crypto wallet.",
+  "long_description": "The Phantom MCP server gives AI agents direct access to an embedded Phantom wallet. Authenticate once with Google or Apple via Phantom Connect, then the agent can:\n\n- **Check connection** — `get_connection_status` (lightweight, no network call)\n- **Get wallet addresses** — Solana, Ethereum, Bitcoin, Sui via `get_wallet_addresses`\n- **Check balances** — all fungible token balances with live USD prices via `get_token_balances`\n- **Transfer tokens** — SOL or SPL tokens on Solana via `transfer_tokens`\n- **Swap tokens** — optimized quotes and execution via Phantom's swap engine (`buy_token`)\n- **Sign and broadcast transactions** — sign pre-built transactions via `sign_transaction`\n- **Sign messages** — EIP-191 and Solana message signing via `sign_message`\n\nPhantom is an enterprise-grade non-custodial wallet supporting Solana, Ethereum, Bitcoin, Base, Polygon, Sui, and Monad. Sessions are stored at `~/.phantom-mcp/session.json` and persist across restarts. If the session expires, re-authentication is triggered automatically.",
   "author": {
     "name": "Phantom"
   },
@@ -38,23 +38,31 @@
   "tools": [
     {
       "name": "get_wallet_addresses",
-      "description": "Gets all blockchain addresses for the authenticated embedded wallet (Solana, Ethereum, Bitcoin, Sui)"
+      "description": "Phantom Wallet: Returns all blockchain addresses (Solana, Ethereum, Bitcoin, Sui) for the authenticated wallet. Call first to confirm connection. Auth errors trigger automatic re-authentication."
     },
     {
-      "name": "sign_transaction",
-      "description": "Signs a transaction using the authenticated embedded wallet. Supports Solana, Ethereum, Bitcoin, and other chains."
+      "name": "get_connection_status",
+      "description": "Phantom Wallet: Lightweight local check of Phantom wallet connection status. Returns {connected, walletId, organizationId}. No API call — use to check if a session exists before other operations."
     },
     {
-      "name": "sign_message",
-      "description": "Signs a UTF-8 message using the authenticated embedded wallet."
+      "name": "get_token_balances",
+      "description": "Phantom Wallet: Returns all fungible token balances with live USD prices. Response: {items: [{symbol, name, caip19, totalQuantity, totalQuantityString, price: {price, priceChange24h}}]}. totalQuantity is human-readable, totalQuantityString is base units. Parse caip19 after '/token:' for the Solana mint address."
     },
     {
       "name": "transfer_tokens",
-      "description": "Transfers SOL or SPL tokens on Solana. Builds, signs, and immediately broadcasts the transaction."
+      "description": "Phantom Wallet: Transfers SOL or SPL tokens on Solana. Requires ≥0.000005 SOL for fees. Use for direct sends; use buy_token for swaps. Returns {signature} — check on Solana explorer to confirm."
     },
     {
       "name": "buy_token",
-      "description": "Fetches a Solana swap quote from the Phantom quotes API. Optionally signs and executes the swap."
+      "description": "Phantom Wallet: Solana token swap via Phantom routing. execute:false=quote only, execute:true=sign+send. Requires SOL for fees. Returns {execution.signature} — check on Solana explorer to confirm."
+    },
+    {
+      "name": "sign_transaction",
+      "description": "Phantom Wallet: Signs and broadcasts a pre-built transaction (base64url for Solana, RLP hex for EVM). Only use when you have a complete transaction from an external source. Returns {signedTransaction, signature}."
+    },
+    {
+      "name": "sign_message",
+      "description": "Phantom Wallet: Signs a UTF-8 message. EIP-191 for Ethereum chains, UTF-8 signing for Solana. Use for auth challenges and proof-of-ownership. Returns {signature}."
     }
   ],
   "user_config": {

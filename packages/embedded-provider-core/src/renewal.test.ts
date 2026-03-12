@@ -94,7 +94,7 @@ describe.skip("EmbeddedProvider Renewal Tests", () => {
     };
 
     const mockLogger = {
-      log: jest.fn(),
+      debug: jest.fn(),
       info: jest.fn(),
       error: jest.fn(),
     };

@@ -63,7 +63,7 @@ import {
 import { WalletServiceError, parseWalletServiceError, getAxiosErrorData, getErrorMessage } from "./errors";
 
 import type { Stamper } from "@phantom/sdk-types";
-import { getSecureTimestamp, randomUUID, isEthereumChain, isSolanaChain } from "@phantom/utils";
+import { getSecureTimestamp, randomUUID, isEthereumChain, isSolanaChain, type Logger } from "@phantom/utils";
 
 type AddUserToOrganizationParams = Omit<AddUserToOrganizationRequest, "user"> & {
   replaceExpirable?: boolean;
@@ -85,12 +85,14 @@ export class PhantomClient {
   private kmsApi: KMSRPCApi;
   private axiosInstance: AxiosInstance;
   public stamper?: Stamper;
+  private logger?: Logger;
 
   constructor(config: PhantomClientConfig, stamper?: Stamper) {
     this.config = {
       ...config,
       walletType: config.walletType || "user-wallet",
     };
+    this.logger = config.logger;
 
     // Create axios instance
     this.axiosInstance = axios.create();
@@ -213,7 +215,7 @@ export class PhantomClient {
         })),
       };
     } catch (error: any) {
-      console.error("Failed to create wallet:", error.response?.data || error.message);
+      this.logger?.error(`Failed to create wallet: ${JSON.stringify(error.response?.data) || error.message}`);
       throw new Error(`Failed to create wallet: ${error.response?.data?.message || error.message}`);
     }
   }
@@ -234,6 +236,10 @@ export class PhantomClient {
         simulationConfig: { account },
         authenticatorPublicKey,
       };
+      this.logger?.debug(
+        `prepare request: submissionConfig=${JSON.stringify(submissionConfig)} account=${account} methodName=${methodName} txLength=${transaction.length} request=${JSON.stringify(request)}`,
+      );
+
       const response = await this.axiosInstance.post(`${this.config.apiBaseUrl}/prepare`, request, {
         headers: {
           "Content-Type": "application/json",
@@ -243,6 +249,11 @@ export class PhantomClient {
       return response.data;
     } catch (error: unknown) {
       const errorData = getAxiosErrorData<PrepareErrorResponse>(error);
+      const axiosStatus = (error as { response?: { status?: number } }).response?.status;
+      const rawResponseData = (error as { response?: { data?: unknown } }).response?.data;
+      this.logger?.error(
+        `[TX_DEBUG] prepare failed: status=${axiosStatus} methodName=${methodName} body=${JSON.stringify(rawResponseData)}`,
+      );
 
       // Check for wallet service errors (like SpendingLimitError or transaction-blocked)
       const walletServiceError = parseWalletServiceError(errorData);
@@ -390,6 +401,10 @@ export class PhantomClient {
         timestampMs: await getSecureTimestamp(),
       } as any;
 
+      this.logger?.debug(
+        `[TX_DEBUG] KMS request: methodName=${methodName} networkId=${networkIdParam} walletId=${walletId} account=${params.account}`,
+      );
+      this.logger?.debug(`[TX_DEBUG] transactionForSigning=${JSON.stringify(transactionForSigning)}`);
       const response = await this.kmsApi.postKmsRpc(request, {
         headers: {
           "X-Rpc-Method": methodName,
@@ -397,7 +412,34 @@ export class PhantomClient {
       });
       const result = (response.data as any).result as SignedTransactionWithPublicKey;
       const rpcSubmissionResult = (response.data as any)["rpc_submission_result"];
-      const hash = includeSubmissionConfig && rpcSubmissionResult ? rpcSubmissionResult.result : null;
+      this.logger?.debug(
+        `[TX_DEBUG] KMS response: methodName=${methodName} hasResult=${!!result} rpcSubmissionResult=${JSON.stringify(rpcSubmissionResult)} fullResponse=${JSON.stringify(response.data)}`,
+      );
+      // rpc_submission_result can be:
+      //   - A Solana-style envelope: { result: "txSignature" }
+      //   - A JSON-RPC envelope:     { jsonrpc, id, result: "0x..." } on success
+      //                          or  { jsonrpc, id, error: { code, message } } on failure
+      let hash: string | undefined = undefined;
+      if (includeSubmissionConfig && rpcSubmissionResult) {
+        // Check for top-level JSON-RPC error (e.g. "intrinsic gas too low")
+        if (rpcSubmissionResult.error) {
+          const { error } = rpcSubmissionResult;
+          throw new Error(
+            `Transaction broadcast failed: ${error.data ?? error.message ?? JSON.stringify(rpcSubmissionResult)}`,
+          );
+        }
+        const envelope = rpcSubmissionResult.result;
+        if (envelope != null) {
+          if (typeof envelope === "string") {
+            hash = envelope;
+          } else if (typeof envelope.result === "string") {
+            hash = envelope.result;
+          } else if (envelope.error) {
+            const { error } = envelope;
+            throw new Error(`Transaction broadcast failed: ${error.data ?? error.message ?? JSON.stringify(envelope)}`);
+          }
+        }
+      }
 
       return {
         signedTransaction: result.transaction as unknown as string, // Base64 encoded signed transaction
@@ -410,6 +452,12 @@ export class PhantomClient {
       if (error instanceof WalletServiceError) {
         throw error;
       }
+
+      const axiosStatus = (error as { response?: { status?: number } }).response?.status;
+      const axiosData = (error as { response?: { data?: unknown } }).response?.data;
+      this.logger?.error(
+        `[TX_DEBUG] performTransactionSigning failed: methodName=${methodName} status=${axiosStatus} body=${JSON.stringify(axiosData)}`,
+      );
 
       throw new Error(getErrorMessage(error, `Failed to ${actionType} transaction`));
     }
@@ -471,7 +519,7 @@ export class PhantomClient {
 
       return addresses;
     } catch (error: any) {
-      console.error("Failed to get wallet addresses:", error.response?.data || error.message);
+      this.logger?.error(`Failed to get wallet addresses: ${JSON.stringify(error.response?.data) || error.message}`);
       throw new Error(`Failed to get wallet addresses: ${error.response?.data?.message || error.message}`);
     }
   }
@@ -522,7 +570,7 @@ export class PhantomClient {
       // Return the base64 encoded signature
       return result.signature;
     } catch (error: any) {
-      console.error("Failed to sign Ethereum message:", error.response?.data || error.message);
+      this.logger?.error(`Failed to sign Ethereum message: ${JSON.stringify(error.response?.data) || error.message}`);
       throw new Error(`Failed to sign Ethereum message: ${error.response?.data?.message || error.message}`);
     }
   }
@@ -573,7 +621,7 @@ export class PhantomClient {
       // Return the base64 encoded signature
       return result.signature;
     } catch (error: any) {
-      console.error("Failed to sign raw payload:", error.response?.data || error.message);
+      this.logger?.error(`Failed to sign raw payload: ${JSON.stringify(error.response?.data) || error.message}`);
       throw new Error(`Failed to sign raw payload: ${error.response?.data?.message || error.message}`);
     }
   }
@@ -623,7 +671,7 @@ export class PhantomClient {
       // Return the base64 encoded signature
       return result.signature;
     } catch (error: any) {
-      console.error("Failed to sign typed data:", error.response?.data || error.message);
+      this.logger?.error(`Failed to sign typed data: ${JSON.stringify(error.response?.data) || error.message}`);
       throw new Error(`Failed to sign typed data: ${error.response?.data?.message || error.message}`);
     }
   }
@@ -662,7 +710,7 @@ export class PhantomClient {
         offset: result.offset,
       };
     } catch (error: any) {
-      console.error("Failed to get wallets:", error.response?.data || error.message);
+      this.logger?.error(`Failed to get wallets: ${JSON.stringify(error.response?.data) || error.message}`);
       throw new Error(`Failed to get wallets: ${error.response?.data?.message || error.message}`);
     }
   }
@@ -684,7 +732,7 @@ export class PhantomClient {
       const result = (response.data as any).result as ExternalKmsOrganization;
       return result;
     } catch (error: any) {
-      console.error("Failed to get organization:", error.response?.data || error.message);
+      this.logger?.error(`Failed to get organization: ${JSON.stringify(error.response?.data) || error.message}`);
       throw new Error(`Failed to get organization: ${error.response?.data?.message || error.message}`);
     }
   }
@@ -753,7 +801,7 @@ export class PhantomClient {
 
       return result;
     } catch (error: any) {
-      console.error("Failed to create organization:", error.response?.data || error.message);
+      this.logger?.error(`Failed to create organization: ${JSON.stringify(error.response?.data) || error.message}`);
       throw new Error(`Failed to create organization: ${error.response?.data?.message || error.message}`);
     }
   }
@@ -793,7 +841,7 @@ export class PhantomClient {
 
       return result;
     } catch (error: any) {
-      console.error("Failed to create authenticator:", error.response?.data || error.message);
+      this.logger?.error(`Failed to create authenticator: ${JSON.stringify(error.response?.data) || error.message}`);
       throw new Error(`Failed to create authenticator: ${error.response?.data?.message || error.message}`);
     }
   }
@@ -820,7 +868,7 @@ export class PhantomClient {
 
       return result;
     } catch (error: any) {
-      console.error("Failed to delete authenticator:", error.response?.data || error.message);
+      this.logger?.error(`Failed to delete authenticator: ${JSON.stringify(error.response?.data) || error.message}`);
       throw new Error(`Failed to delete authenticator: ${error.response?.data?.message || error.message}`);
     }
   }
@@ -842,7 +890,9 @@ export class PhantomClient {
 
       return result;
     } catch (error: any) {
-      console.error("Failed to grant organization access:", error.response?.data || error.message);
+      this.logger?.error(
+        `Failed to grant organization access: ${JSON.stringify(error.response?.data) || error.message}`,
+      );
       throw new Error(`Failed to grant organization access: ${error.response?.data?.message || error.message}`);
     }
   }
@@ -861,7 +911,9 @@ export class PhantomClient {
       await this.kmsApi.postKmsRpc(request);
       // Return success - void method
     } catch (error: any) {
-      console.error("Failed to add user to organization:", error.response?.data || error.message);
+      this.logger?.error(
+        `Failed to add user to organization: ${JSON.stringify(error.response?.data) || error.message}`,
+      );
       throw new Error(`Failed to add user to organization: ${error.response?.data?.message || error.message}`);
     }
   }
@@ -885,7 +937,7 @@ export class PhantomClient {
       const result = (response.data as any).result;
       return result;
     } catch (error: any) {
-      console.error("Failed to get wallet with tag:", error.response?.data || error.message);
+      this.logger?.error(`Failed to get wallet with tag: ${JSON.stringify(error.response?.data) || error.message}`);
       throw new Error(`Failed to get wallet with tag: ${error.response?.data?.message || error.message}`);
     }
   }

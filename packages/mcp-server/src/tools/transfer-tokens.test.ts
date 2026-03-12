@@ -1,0 +1,263 @@
+import { transferTokensTool } from "./transfer-tokens";
+
+// ── Mocks ─────────────────────────────────────────────────────────────────────
+
+jest.mock("@phantom/parsers", () => ({
+  parseToKmsTransaction: jest.fn().mockResolvedValue({ parsed: "0xrlpencoded", originalFormat: "json" }),
+}));
+
+jest.mock("../utils/evm.js", () => ({
+  getEthereumAddress: jest.fn().mockResolvedValue("0xabcdef1234567890abcdef1234567890abcdef12"),
+  resolveEvmRpcUrl: jest.fn().mockReturnValue("https://rpc.example.com"),
+  estimateGas: jest.fn().mockResolvedValue("0x5208"),
+  fetchGasPrice: jest.fn().mockResolvedValue("0x4A817C800"),
+  assertEvmAddress: jest.fn(),
+}));
+
+jest.mock("@solana/web3.js", () => ({
+  Connection: jest.fn().mockImplementation(() => ({
+    getAccountInfo: jest.fn().mockResolvedValue({ data: Buffer.alloc(0) }),
+    getLatestBlockhash: jest.fn().mockResolvedValue({ blockhash: "testhash" }),
+  })),
+  PublicKey: jest.fn().mockImplementation((key: string) => ({
+    toBase58: () => key,
+    toString: () => key,
+    toBuffer: () => Buffer.alloc(32),
+  })),
+  SystemProgram: {
+    transfer: jest
+      .fn()
+      .mockReturnValue({ keys: [], programId: "11111111111111111111111111111111", data: Buffer.alloc(0) }),
+  },
+  Transaction: jest.fn().mockImplementation(() => ({
+    add: jest.fn(),
+    serialize: jest.fn().mockReturnValue(Buffer.from("signedtx")),
+    feePayer: null,
+    recentBlockhash: null,
+  })),
+}));
+
+jest.mock("@solana/spl-token", () => ({
+  getMint: jest.fn().mockResolvedValue({ decimals: 6 }),
+  getAssociatedTokenAddress: jest.fn().mockResolvedValue("ata-address"),
+  createAssociatedTokenAccountInstruction: jest.fn().mockReturnValue({}),
+  createTransferInstruction: jest.fn().mockReturnValue({}),
+  createTransferCheckedInstruction: jest.fn().mockReturnValue({}),
+}));
+
+jest.mock("@phantom/base64url", () => ({
+  base64urlEncode: jest.fn().mockReturnValue("base64url-encoded-tx"),
+}));
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const makeContext = (overrides: Record<string, unknown> = {}) => ({
+  client: {
+    signAndSendTransaction: jest.fn().mockResolvedValue({ hash: "0xtxhash", rawTransaction: "0xraw" }),
+    getWalletAddresses: jest.fn().mockResolvedValue([
+      { addressType: "solana", address: "So11111111111111111111111111111111111111112" },
+      { addressType: "ethereum", address: "0xabcdef1234567890abcdef1234567890abcdef12" },
+    ]),
+    ...overrides,
+  },
+  session: { walletId: "wallet-1", organizationId: "org-1" },
+  logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+});
+
+beforeEach(() => jest.clearAllMocks());
+
+// ── Schema ─────────────────────────────────────────────────────────────────────
+
+describe("transfer_tokens — schema", () => {
+  it("has correct name and required fields", () => {
+    expect(transferTokensTool.name).toBe("transfer_tokens");
+    expect(transferTokensTool.inputSchema.required).toContain("networkId");
+    expect(transferTokensTool.inputSchema.required).toContain("to");
+    expect(transferTokensTool.inputSchema.required).toContain("amount");
+  });
+
+  it("accepts EVM networkId in description", () => {
+    const desc = (transferTokensTool.inputSchema.properties as any).networkId.description;
+    expect(desc).toContain("eip155:1");
+    expect(desc).toContain("eip155:8453");
+  });
+});
+
+// ── Solana path (existing behaviour) ─────────────────────────────────────────
+
+describe("transfer_tokens — Solana", () => {
+  it("transfers SOL on solana:mainnet", async () => {
+    const ctx = makeContext();
+    const result = (await transferTokensTool.handler(
+      {
+        networkId: "solana:mainnet",
+        to: "RecipientAddress111111111111111111111111111",
+        amount: "0.5",
+        amountUnit: "ui",
+      },
+      ctx as any,
+    )) as any;
+
+    expect(ctx.client.signAndSendTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({ walletId: "wallet-1", networkId: expect.stringContaining("solana:") }),
+    );
+    expect(result.tokenMint).toBeNull();
+    expect(result.signature).toBe("0xtxhash");
+  });
+
+  it("rejects unsupported network", async () => {
+    const ctx = makeContext();
+    await expect(
+      transferTokensTool.handler({ networkId: "bitcoin:mainnet", to: "addr", amount: "1" }, ctx as any),
+    ).rejects.toThrow("Unsupported network");
+  });
+});
+
+// ── EVM — native transfer ─────────────────────────────────────────────────────
+
+describe("transfer_tokens — EVM native", () => {
+  it("transfers ETH on eip155:1", async () => {
+    const ctx = makeContext();
+    const result = (await transferTokensTool.handler(
+      {
+        networkId: "eip155:1",
+        to: "0x742d35Cc6634C0532925a3b8D4C8db86fB5C4A7E",
+        amount: "1000000000000000000",
+        amountUnit: "base",
+      },
+      ctx as any,
+    )) as any;
+
+    expect(ctx.client.signAndSendTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({ transaction: "0xrlpencoded", networkId: "eip155:1" }),
+    );
+    expect(result.from).toBe("0xabcdef1234567890abcdef1234567890abcdef12");
+    expect(result.to).toBe("0x742d35Cc6634C0532925a3b8D4C8db86fB5C4A7E");
+    expect(result.tokenMint).toBeNull();
+    expect(result.signature).toBe("0xtxhash");
+  });
+
+  it("converts UI amount to wei for native transfer", async () => {
+    const { parseToKmsTransaction } = jest.requireMock("@phantom/parsers");
+    const ctx = makeContext();
+    await transferTokensTool.handler(
+      { networkId: "eip155:8453", to: "0x742d35Cc6634C0532925a3b8D4C8db86fB5C4A7E", amount: "1", amountUnit: "ui" },
+      ctx as any,
+    );
+    const baseTx = parseToKmsTransaction.mock.calls[0][0];
+    expect(baseTx.value).toBe("0xde0b6b3a7640000"); // 1 ETH in wei = 10^18
+  });
+
+  it("uses EVM address as from address", async () => {
+    const ctx = makeContext();
+    const result = (await transferTokensTool.handler(
+      {
+        networkId: "eip155:137",
+        to: "0x742d35Cc6634C0532925a3b8D4C8db86fB5C4A7E",
+        amount: "1000000000000000000",
+        amountUnit: "base",
+      },
+      ctx as any,
+    )) as any;
+    expect(result.from).toBe("0xabcdef1234567890abcdef1234567890abcdef12");
+    expect(result.networkId).toBe("eip155:137");
+  });
+
+  it("includes chainId in the transaction", async () => {
+    const { parseToKmsTransaction } = jest.requireMock("@phantom/parsers");
+    const ctx = makeContext();
+    await transferTokensTool.handler(
+      { networkId: "eip155:8453", to: "0x742d35Cc6634C0532925a3b8D4C8db86fB5C4A7E", amount: "100", amountUnit: "base" },
+      ctx as any,
+    );
+    const baseTx = parseToKmsTransaction.mock.calls[0][0];
+    expect(baseTx.chainId).toBe(8453);
+  });
+});
+
+// ── EVM — ERC-20 transfer ────────────────────────────────────────────────────
+
+describe("transfer_tokens — EVM ERC-20", () => {
+  const ERC20_CONTRACT = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
+  const RECIPIENT = "0x742d35Cc6634C0532925a3b8D4C8db86fB5C4A7E";
+
+  it("encodes ERC-20 transfer calldata correctly", async () => {
+    const { parseToKmsTransaction } = jest.requireMock("@phantom/parsers");
+    const ctx = makeContext();
+    await transferTokensTool.handler(
+      {
+        networkId: "eip155:1",
+        to: RECIPIENT,
+        amount: "1000000",
+        amountUnit: "base",
+        tokenMint: ERC20_CONTRACT,
+      },
+      ctx as any,
+    );
+    const baseTx = parseToKmsTransaction.mock.calls[0][0];
+    // data starts with ERC-20 transfer selector 0xa9059cbb
+    expect(baseTx.data).toMatch(/^0xa9059cbb/);
+    // recipient address padded in data
+    expect(baseTx.data).toContain(RECIPIENT.toLowerCase().slice(2).padStart(64, "0"));
+    // amount 1000000 = 0xf4240 padded
+    expect(baseTx.data).toContain("f4240".padStart(64, "0"));
+    // tx goes to the token contract, not the recipient
+    expect(baseTx.to).toBe(ERC20_CONTRACT);
+    expect(baseTx.value).toBe("0x0");
+  });
+
+  it("converts UI amount using decimals for ERC-20", async () => {
+    const { parseToKmsTransaction } = jest.requireMock("@phantom/parsers");
+    const ctx = makeContext();
+    await transferTokensTool.handler(
+      {
+        networkId: "eip155:1",
+        to: RECIPIENT,
+        amount: "100",
+        amountUnit: "ui",
+        tokenMint: ERC20_CONTRACT,
+        decimals: 6,
+      },
+      ctx as any,
+    );
+    const baseTx = parseToKmsTransaction.mock.calls[0][0];
+    // 100 USDC = 100 * 10^6 = 100000000 = 0x5F5E100
+    expect(baseTx.data).toContain("5f5e100".padStart(64, "0"));
+  });
+
+  it("throws when decimals missing for ERC-20 with UI amount", async () => {
+    const ctx = makeContext();
+    await expect(
+      transferTokensTool.handler(
+        {
+          networkId: "eip155:1",
+          to: RECIPIENT,
+          amount: "100",
+          amountUnit: "ui",
+          tokenMint: ERC20_CONTRACT,
+        },
+        ctx as any,
+      ),
+    ).rejects.toThrow("decimals is required for ERC-20");
+  });
+
+  it("throws for invalid ERC-20 contract address", async () => {
+    const ctx = makeContext();
+    await expect(
+      transferTokensTool.handler(
+        { networkId: "eip155:1", to: RECIPIENT, amount: "100", tokenMint: "not-an-evm-address" },
+        ctx as any,
+      ),
+    ).rejects.toThrow("tokenMint must be a valid EVM contract address");
+  });
+
+  it("returns tokenMint in result", async () => {
+    const ctx = makeContext();
+    const result = (await transferTokensTool.handler(
+      { networkId: "eip155:1", to: RECIPIENT, amount: "1000000", amountUnit: "base", tokenMint: ERC20_CONTRACT },
+      ctx as any,
+    )) as any;
+    expect(result.tokenMint).toBe(ERC20_CONTRACT);
+    expect(result.to).toBe(RECIPIENT);
+  });
+});

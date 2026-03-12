@@ -97,7 +97,7 @@ describe("EmbeddedProvider Core", () => {
       info: jest.fn(),
       warn: jest.fn(),
       error: jest.fn(),
-      log: jest.fn(),
+      debug: jest.fn(),
     };
 
     provider = new EmbeddedProvider(config, mockPlatform, mockLogger);
@@ -106,7 +106,7 @@ describe("EmbeddedProvider Core", () => {
   describe("Construction", () => {
     it("should create embedded provider with platform adapters and logger", () => {
       expect(provider).toBeInstanceOf(EmbeddedProvider);
-      expect(mockLogger.log).toHaveBeenCalledWith("EMBEDDED_PROVIDER", "Initializing EmbeddedProvider", { config });
+      expect(mockLogger.debug).toHaveBeenCalledWith("EMBEDDED_PROVIDER", "Initializing EmbeddedProvider", { config });
       expect(mockLogger.info).toHaveBeenCalledWith("EMBEDDED_PROVIDER", "EmbeddedProvider initialized");
     });
 
@@ -226,7 +226,7 @@ describe("EmbeddedProvider Core", () => {
 
     it("should call provided logger during provider operations", () => {
       // Verify logger was called during provider initialization
-      expect(mockLogger.log).toHaveBeenCalledWith("EMBEDDED_PROVIDER", "Initializing EmbeddedProvider", { config });
+      expect(mockLogger.debug).toHaveBeenCalledWith("EMBEDDED_PROVIDER", "Initializing EmbeddedProvider", { config });
       expect(mockLogger.info).toHaveBeenCalledWith("EMBEDDED_PROVIDER", "EmbeddedProvider initialized");
     });
 

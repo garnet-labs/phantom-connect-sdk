@@ -5,6 +5,11 @@
  * Using console.log() or process.stdout.write() will break the MCP protocol.
  */
 
+import * as fs from "fs";
+
+const LOG_FILE = "/tmp/phantom-mcp-debug.log";
+const ENABLE_FILE_LOGGING = process.env.ENABLE_FILE_LOGGING === "true";
+
 export type LogLevel = "INFO" | "ERROR" | "WARN" | "DEBUG";
 
 export class Logger {
@@ -21,6 +26,9 @@ export class Logger {
     const timestamp = new Date().toISOString();
     const logMessage = `[${timestamp}] [${level}] [${this.context}] ${message}\n`;
     process.stderr.write(logMessage);
+    if (ENABLE_FILE_LOGGING) {
+      fs.appendFile(LOG_FILE, logMessage, () => {});
+    }
   }
 
   /**
