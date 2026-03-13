@@ -985,6 +985,46 @@ function toggleDebug(enabled: boolean) {
 }
 ```
 
+## Dapp-Sponsored Transactions (presignTransaction)
+
+Pass `presignTransaction` directly to `signAndSendTransaction` for calls that need co-signing. Calls without it proceed normally — it is never applied globally.
+
+> **Important:** Phantom embedded wallets do not accept pre-signed transactions. If your use case requires a second signer (e.g. your app as the fee payer), that signing must happen via this option, after Phantom has constructed and validated the transaction. This restriction does not apply to injected providers (e.g. the Phantom browser extension).
+
+> **Note:** `presignTransaction` only fires for Solana transactions via the embedded provider. EVM transactions and injected providers are unaffected.
+
+### Transaction format
+
+The `transaction` string is **base64url-encoded** (URL-safe base64 without `=` padding, using `-` and `_` instead of `+` and `/`).
+
+The SDK exports `base64urlDecode` and `base64urlEncode` utilities:
+
+```ts
+import { base64urlDecode, base64urlEncode } from "@phantom/browser-sdk";
+```
+
+### Example: Dapp fee payer
+
+```ts
+import { base64urlDecode, base64urlEncode } from "@phantom/browser-sdk";
+import { Keypair, VersionedTransaction } from "@solana/web3.js";
+
+const feePayerKeypair = Keypair.fromSecretKey(/* your fee payer secret key */);
+
+// This call co-signs as fee payer
+const result = await sdk.solana.signAndSendTransaction(transaction, {
+  presignTransaction: async (tx, context) => {
+    const txBytes = base64urlDecode(tx);
+    const versionedTx = VersionedTransaction.deserialize(txBytes);
+    versionedTx.sign([feePayerKeypair]);
+    return base64urlEncode(versionedTx.serialize());
+  },
+});
+
+// This call has no co-signer
+const result2 = await sdk.solana.signAndSendTransaction(otherTransaction);
+```
+
 ## Transaction Examples
 
 ### Solana Transactions

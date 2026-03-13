@@ -1,5 +1,21 @@
 # @phantom/browser-sdk
 
+## 1.0.7
+
+### Patch Changes
+
+- 5d607db: Added double transaction signing support on browser-sdk, react-sdk and react-native-sdk for solana transactions on embedded wallets
+- Updated dependencies [5d607db]
+  - @phantom/embedded-provider-core@1.0.7
+  - @phantom/chain-interfaces@1.0.7
+  - @phantom/client@1.0.7
+  - @phantom/base64url@1.0.7
+  - @phantom/browser-injected-sdk@1.0.7
+  - @phantom/constants@1.0.7
+  - @phantom/indexed-db-stamper@1.0.7
+  - @phantom/parsers@1.0.7
+  - @phantom/sdk-types@1.0.7
+
 ## 1.0.6
 
 ### Patch Changes

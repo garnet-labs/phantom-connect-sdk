@@ -1,5 +1,20 @@
 # @phantom/mcp-server
 
+## 0.2.1
+
+### Patch Changes
+
+- 6ba2806: Fix add phantom_login
+- Updated dependencies [5d607db]
+  - @phantom/client@1.0.7
+  - @phantom/api-key-stamper@1.0.7
+  - @phantom/base64url@1.0.7
+  - @phantom/constants@1.0.7
+  - @phantom/crypto@1.0.7
+  - @phantom/parsers@1.0.7
+  - @phantom/server-sdk@1.0.7
+  - @phantom/utils@1.0.7
+
 ## 0.2.0
 
 ### Minor Changes

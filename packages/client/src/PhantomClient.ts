@@ -52,6 +52,7 @@ import {
   type GetWalletsResult,
   type GetWalletWithTagParams,
   type PhantomClientConfig,
+  type PresignTransactionContext,
   type SignAndSendTransactionParams,
   type SignedTransaction,
   type SignedTransactionResult,
@@ -331,6 +332,7 @@ export class PhantomClient {
   private async performTransactionSigning(
     params: SignTransactionParams,
     includeSubmissionConfig: boolean,
+    presignTransaction?: (transaction: string, context: PresignTransactionContext) => Promise<string>,
   ): Promise<{ signedTransaction: string; hash?: string }> {
     const walletId = params.walletId;
     const encodedTransaction = params.transaction;
@@ -364,7 +366,7 @@ export class PhantomClient {
 
       const authenticatorPublicKey = this.getAuthenticatorPublicKey();
 
-      const transactionForSigning = await this.getTransactionForSigning({
+      let transactionForSigning = await this.getTransactionForSigning({
         encodedTransaction,
         networkId: networkIdParam,
         submissionConfig,
@@ -372,6 +374,17 @@ export class PhantomClient {
         account: params.account,
         methodName,
       });
+
+      if (presignTransaction && typeof transactionForSigning === "string") {
+        try {
+          transactionForSigning = await presignTransaction(transactionForSigning, {
+            networkId: networkIdParam,
+            walletId,
+          });
+        } catch (hookError) {
+          throw new Error(`presignTransaction hook failed: ${getErrorMessage(hookError, "unknown error")}`);
+        }
+      }
 
       const signRequest: SignTransactionRequest & {
         submissionConfig?: SubmissionConfig;
@@ -467,7 +480,7 @@ export class PhantomClient {
    * Sign a transaction
    */
   async signTransaction(params: SignTransactionParams): Promise<SignedTransactionResult> {
-    const result = await this.performTransactionSigning(params, false);
+    const result = await this.performTransactionSigning(params, false, params.presignTransaction);
 
     return {
       rawTransaction: result.signedTransaction,
@@ -478,7 +491,7 @@ export class PhantomClient {
    * Sign and send a transaction
    */
   async signAndSendTransaction(params: SignAndSendTransactionParams): Promise<SignedTransaction> {
-    const result = await this.performTransactionSigning(params, true);
+    const result = await this.performTransactionSigning(params, true, params.presignTransaction);
     return {
       rawTransaction: result.signedTransaction,
       hash: result.hash,

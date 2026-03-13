@@ -1023,3 +1023,163 @@ describe("PhantomClient rpc_submission_result envelope handling", () => {
     expect(result.hash).toBeUndefined();
   });
 });
+
+describe("PhantomClient presignTransaction (per-call)", () => {
+  let client: PhantomClient;
+  let mockAxiosPost: jest.Mock;
+  let mockKmsPost: jest.Mock;
+
+  beforeEach(() => {
+    mockAxiosPost = jest.fn();
+    const mockAxiosInstance = {
+      post: mockAxiosPost,
+      interceptors: { request: { use: jest.fn() } },
+    };
+    (axios.create as jest.Mock).mockReturnValue(mockAxiosInstance);
+
+    client = new PhantomClient({
+      apiBaseUrl: "https://api.phantom.app",
+      organizationId: "test-org-id",
+    });
+
+    mockKmsPost = jest.fn();
+    Object.defineProperty(client, "kmsApi", { value: { postKmsRpc: mockKmsPost }, writable: true });
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  const signedTxResult = { transaction: "signed-tx", publicKey: "pubkey", address: "addr", signature: "sig" };
+
+  it("calls presignTransaction with the prepared transaction and correct context", async () => {
+    const presignTransaction = jest.fn().mockResolvedValue("hook-modified-tx");
+
+    mockAxiosPost.mockResolvedValueOnce({ data: { transaction: "prepared-tx", simulationResult: {} } });
+    mockKmsPost.mockResolvedValue({
+      data: { result: signedTxResult, rpc_submission_result: { result: "txhash" } },
+    });
+
+    await client.signAndSendTransaction({
+      walletId: "wallet-123",
+      transaction: "original-tx",
+      networkId: NetworkId.SOLANA_MAINNET,
+      account: "UserAccount123",
+      presignTransaction,
+    });
+
+    expect(presignTransaction).toHaveBeenCalledWith("prepared-tx", {
+      networkId: NetworkId.SOLANA_MAINNET,
+      walletId: "wallet-123",
+    });
+  });
+
+  it("passes the presignTransaction return value to KMS", async () => {
+    const presignTransaction = jest.fn().mockResolvedValue("hook-modified-tx");
+
+    mockAxiosPost.mockResolvedValueOnce({ data: { transaction: "prepared-tx", simulationResult: {} } });
+    mockKmsPost.mockResolvedValue({
+      data: { result: signedTxResult, rpc_submission_result: { result: "txhash" } },
+    });
+
+    await client.signAndSendTransaction({
+      walletId: "wallet-123",
+      transaction: "original-tx",
+      networkId: NetworkId.SOLANA_MAINNET,
+      account: "UserAccount123",
+      presignTransaction,
+    });
+
+    const kmsCallParams = mockKmsPost.mock.calls[0][0];
+    expect(kmsCallParams.params.transaction).toBe("hook-modified-tx");
+  });
+
+  it("surfaces presignTransaction errors with a clear message", async () => {
+    const presignTransaction = jest.fn().mockRejectedValue(new Error("keypair not loaded"));
+
+    mockAxiosPost.mockResolvedValueOnce({ data: { transaction: "prepared-tx", simulationResult: {} } });
+
+    await expect(
+      client.signAndSendTransaction({
+        walletId: "wallet-123",
+        transaction: "original-tx",
+        networkId: NetworkId.SOLANA_MAINNET,
+        account: "UserAccount123",
+        presignTransaction,
+      }),
+    ).rejects.toThrow("presignTransaction hook failed: keypair not loaded");
+  });
+
+  it("works normally when presignTransaction is not provided", async () => {
+    mockAxiosPost.mockResolvedValueOnce({ data: { transaction: "prepared-tx", simulationResult: {} } });
+    mockKmsPost.mockResolvedValue({
+      data: { result: signedTxResult, rpc_submission_result: { result: "txhash" } },
+    });
+
+    const result = await client.signAndSendTransaction({
+      walletId: "wallet-123",
+      transaction: "original-tx",
+      networkId: NetworkId.SOLANA_MAINNET,
+      account: "UserAccount123",
+    });
+
+    expect(mockAxiosPost).toHaveBeenCalled();
+    expect(mockKmsPost).toHaveBeenCalled();
+    const kmsCallParams = mockKmsPost.mock.calls[0][0];
+    expect(kmsCallParams.params.transaction).toBe("prepared-tx");
+    expect(result.hash).toBe("txhash");
+  });
+
+  it("does not call presignTransaction for EVM transactions (object format bypasses it)", async () => {
+    const presignTransaction = jest.fn().mockResolvedValue("should-never-be-used");
+
+    mockKmsPost.mockResolvedValue({
+      data: { result: signedTxResult, rpc_submission_result: { result: "0xhash" } },
+    });
+
+    await client.signAndSendTransaction({
+      walletId: "wallet-123",
+      transaction: "0x1234",
+      networkId: NetworkId.ETHEREUM_MAINNET,
+      presignTransaction,
+    });
+
+    expect(presignTransaction).not.toHaveBeenCalled();
+    expect(mockAxiosPost).not.toHaveBeenCalled();
+  });
+
+  it("only applies presignTransaction to the specific call it is passed to", async () => {
+    const presignTransaction = jest.fn().mockResolvedValue("hook-modified-tx");
+
+    // First call: with presignTransaction
+    mockAxiosPost.mockResolvedValueOnce({ data: { transaction: "prepared-tx", simulationResult: {} } });
+    mockKmsPost.mockResolvedValue({
+      data: { result: signedTxResult, rpc_submission_result: { result: "txhash" } },
+    });
+
+    await client.signAndSendTransaction({
+      walletId: "wallet-123",
+      transaction: "original-tx",
+      networkId: NetworkId.SOLANA_MAINNET,
+      account: "UserAccount123",
+      presignTransaction,
+    });
+
+    expect(presignTransaction).toHaveBeenCalledTimes(1);
+
+    // Second call: without presignTransaction
+    mockAxiosPost.mockResolvedValueOnce({ data: { transaction: "prepared-tx-2", simulationResult: {} } });
+
+    await client.signAndSendTransaction({
+      walletId: "wallet-123",
+      transaction: "original-tx-2",
+      networkId: NetworkId.SOLANA_MAINNET,
+      account: "UserAccount123",
+    });
+
+    // presignTransaction should NOT have been called again
+    expect(presignTransaction).toHaveBeenCalledTimes(1);
+    const secondKmsCall = mockKmsPost.mock.calls[1][0];
+    expect(secondKmsCall.params.transaction).toBe("prepared-tx-2");
+  });
+});

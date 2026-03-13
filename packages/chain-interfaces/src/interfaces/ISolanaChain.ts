@@ -1,5 +1,13 @@
 import type { Transaction, VersionedTransaction } from "@phantom/sdk-types";
 
+export interface PresignTransactionFn {
+  (transaction: string, context: { networkId: string; walletId: string }): Promise<string>;
+}
+
+export interface SignAndSendTransactionOptions {
+  presignTransaction?: PresignTransactionFn;
+}
+
 export interface ISolanaChain {
   readonly publicKey: string | null;
   readonly isConnected: boolean;
@@ -9,7 +17,10 @@ export interface ISolanaChain {
 
   signMessage(message: string | Uint8Array): Promise<{ signature: Uint8Array; publicKey: string }>;
   signTransaction(transaction: Transaction | VersionedTransaction): Promise<Transaction | VersionedTransaction>;
-  signAndSendTransaction(transaction: Transaction | VersionedTransaction): Promise<{ signature: string }>;
+  signAndSendTransaction(
+    transaction: Transaction | VersionedTransaction,
+    options?: SignAndSendTransactionOptions,
+  ): Promise<{ signature: string }>;
   signAllTransactions(
     transactions: (Transaction | VersionedTransaction)[],
   ): Promise<(Transaction | VersionedTransaction)[]>;

@@ -10,6 +10,8 @@ import {
   NetworkId,
   ConnectButton,
   ConnectBox,
+  base64urlDecode,
+  base64urlEncode,
 } from "@phantom/react-sdk";
 import {
   SystemProgram,
@@ -43,6 +45,7 @@ export function SDKActions() {
   const [isSigningOnlyTransaction, setIsSigningOnlyTransaction] = useState<"solana" | "ethereum" | null>(null);
   const [isSigningDeniedProgramTx, setIsSigningDeniedProgramTx] = useState(false);
   const [isSigningAndSendingTransaction, setIsSigningAndSendingTransaction] = useState(false);
+  const [isPresignTransaction, setIsPresignTransaction] = useState(false);
   const [isSendingEthTransaction, setIsSendingEthTransaction] = useState(false);
   const [isSigningAllTransactions, setIsSigningAllTransactions] = useState(false);
   const [isSendingTokens, setIsSendingTokens] = useState(false);
@@ -398,6 +401,72 @@ export function SDKActions() {
       alert(`Error signing and sending transaction: ${(error as Error).message || error}`);
     } finally {
       setIsSigningAndSendingTransaction(false);
+    }
+  };
+
+  const onSignAndSendWithPresign = async () => {
+    if (!isConnected || !solanaAddress || !isSolanaAvailable) {
+      alert("Please connect your wallet first and ensure Solana is available.");
+      return;
+    }
+    try {
+      setIsPresignTransaction(true);
+      const rpcUrl = import.meta.env.VITE_SOLANA_RPC_URL_MAINNET || "https://api.mainnet-beta.solana.com";
+      const connection = new Connection(rpcUrl);
+      const { blockhash } = await connection.getLatestBlockhash();
+
+      // FOR TESTING ONLY — if a fee payer key is configured, derive its pubkey so it can
+      // be set as the transaction fee payer before compilation. In production, the backend
+      // provides the fee payer pubkey and signs server-side.
+      const feePayerSecret = import.meta.env.VITE_FEE_PAYER_SECRET_KEY as string | undefined;
+      const feePayerKeypair = feePayerSecret
+        ? Keypair.fromSecretKey(Buffer.from(feePayerSecret.trim(), "base64"))
+        : null;
+
+      const transferInstruction = SystemProgram.transfer({
+        fromPubkey: new PublicKey(solanaAddress),
+        toPubkey: new PublicKey(solanaAddress), // Self-transfer for demo
+        lamports: 1000,
+      });
+
+      const messageV0 = new TransactionMessage({
+        // Use the fee payer's pubkey when available so it's included as a signer in the message.
+        payerKey: feePayerKeypair ? feePayerKeypair.publicKey : new PublicKey(solanaAddress),
+        recentBlockhash: blockhash,
+        instructions: [transferInstruction],
+      }).compileToV0Message();
+
+      const transaction = new VersionedTransaction(messageV0);
+
+      // presignTransaction only runs for embedded providers — injected wallets ignore it.
+      const isEmbedded = user?.authProvider !== "injected";
+
+      const result = await solana.signAndSendTransaction(
+        transaction,
+        isEmbedded
+          ? {
+              presignTransaction: (tx, _context) => {
+                if (feePayerKeypair) {
+                  const versionedTx = VersionedTransaction.deserialize(base64urlDecode(tx));
+                  versionedTx.sign([feePayerKeypair]);
+                  return Promise.resolve(base64urlEncode(versionedTx.serialize()));
+                }
+                return Promise.resolve(tx);
+              },
+            }
+          : undefined,
+      );
+
+      alert(
+        isEmbedded
+          ? `Transaction sent with presign! Signature: ${result.signature}`
+          : `Transaction sent (no presign — injected provider). Signature: ${result.signature}`,
+      );
+    } catch (error) {
+      console.error("Error in presign transaction:", error);
+      alert(`Error: ${(error as Error).message || error}`);
+    } finally {
+      setIsPresignTransaction(false);
     }
   };
 
@@ -1087,6 +1156,16 @@ export function SDKActions() {
                 : !hasSolanaBalance
                   ? "Insufficient SOL Balance (need > 0)"
                   : "Sign & Send Transaction (Solana)"}
+            </button>
+            <button
+              onClick={onSignAndSendWithPresign}
+              disabled={!isConnected || isPresignTransaction || !hasSolanaBalance}
+            >
+              {isPresignTransaction
+                ? "Signing with presign..."
+                : !hasSolanaBalance
+                  ? "Insufficient SOL Balance (need > 0)"
+                  : "Sign & Send with Presign (Solana)"}
             </button>
             <button
               onClick={onSwitchToSolanaMainnet}

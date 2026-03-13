@@ -1,5 +1,5 @@
 import { EventEmitter } from "eventemitter3";
-import type { ISolanaChain } from "@phantom/chain-interfaces";
+import type { ISolanaChain, SignAndSendTransactionOptions } from "@phantom/chain-interfaces";
 import type { EmbeddedProvider } from "../embedded-provider";
 import { NetworkId } from "@phantom/constants";
 import bs58 from "bs58";
@@ -67,11 +67,15 @@ export class EmbeddedSolanaChain implements ISolanaChain {
     return signedTransaction;
   }
 
-  async signAndSendTransaction(transaction: Transaction | VersionedTransaction): Promise<{ signature: string }> {
+  async signAndSendTransaction(
+    transaction: Transaction | VersionedTransaction,
+    options?: SignAndSendTransactionOptions,
+  ): Promise<{ signature: string }> {
     this.ensureConnected();
     const result = await this.provider.signAndSendTransaction({
       transaction,
       networkId: this.currentNetworkId,
+      presignTransaction: options?.presignTransaction,
     });
     if (!result.hash) {
       throw new Error("Transaction not submitted");

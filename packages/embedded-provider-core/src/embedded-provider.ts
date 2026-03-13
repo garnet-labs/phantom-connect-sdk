@@ -971,6 +971,7 @@ export class EmbeddedProvider {
         networkId: params.networkId,
         derivationIndex: derivationIndex,
         account,
+        presignTransaction: params.presignTransaction,
       })
       .catch(error => this.handleSigningError(error));
 
@@ -1369,7 +1370,6 @@ export class EmbeddedProvider {
       },
       this.stamper,
     );
-
     this.walletId = session.walletId;
 
     // Get wallet addresses and filter by enabled address types with retry

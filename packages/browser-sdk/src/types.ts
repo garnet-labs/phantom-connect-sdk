@@ -10,6 +10,8 @@ import type {
 } from "@phantom/embedded-provider-core";
 import type { ISolanaChain, IEthereumChain } from "@phantom/chain-interfaces";
 import { AddressType } from "@phantom/client";
+export type { PresignTransactionContext } from "@phantom/client";
+export type { SignAndSendTransactionOptions } from "@phantom/chain-interfaces";
 
 import type { DebugCallback, DebugLevel } from "./debug";
 import type { InjectedProviderConfig } from "./providers/injected";

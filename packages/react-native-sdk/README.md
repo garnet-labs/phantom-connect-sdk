@@ -489,6 +489,42 @@ The SDK automatically handles deep link redirects. Ensure your app's URL scheme 
 
 **Redirect URL format:** `{scheme}://phantom-auth-callback?wallet_id=...&session_id=...`
 
+## Dapp-Sponsored Transactions (presignTransaction)
+
+Pass `presignTransaction` directly to `signAndSendTransaction` for calls that need co-signing. Calls without it proceed normally — it is never applied globally.
+
+> **Important:** Phantom embedded wallets do not accept pre-signed transactions. If your use case requires a second signer (e.g. your app as the fee payer), that signing must happen via this option, after Phantom has constructed and validated the transaction. This restriction does not apply to injected providers (e.g. the Phantom browser extension).
+
+> **Note:** `presignTransaction` only fires for Solana transactions via the embedded provider. EVM transactions are unaffected.
+
+```tsx
+import { useSolana, base64urlDecode, base64urlEncode } from "@phantom/react-native-sdk";
+import { Keypair, VersionedTransaction } from "@solana/web3.js";
+
+const feePayerKeypair = Keypair.fromSecretKey(/* your fee payer secret key */);
+
+function SendWithFeeSponsor() {
+  const { solana } = useSolana();
+
+  const sendSponsored = async () => {
+    // This call co-signs as fee payer
+    const result = await solana.signAndSendTransaction(transaction, {
+      presignTransaction: async (tx, context) => {
+        const txBytes = base64urlDecode(tx);
+        const versionedTx = VersionedTransaction.deserialize(txBytes);
+        versionedTx.sign([feePayerKeypair]);
+        return base64urlEncode(versionedTx.serialize());
+      },
+    });
+  };
+
+  const sendNormal = async () => {
+    // This call has no co-signer
+    const result = await solana.signAndSendTransaction(transaction);
+  };
+}
+```
+
 ## Security Features
 
 ### Secure Storage

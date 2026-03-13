@@ -1,4 +1,4 @@
-import type { AddressType } from "@phantom/client";
+import type { AddressType, PresignTransactionContext } from "@phantom/client";
 import type { NetworkId } from "@phantom/constants";
 import type { ParsedSignatureResult, ParsedTransactionResult } from "@phantom/parsers";
 
@@ -36,6 +36,7 @@ export interface SignTransactionParams {
 export interface SignAndSendTransactionParams {
   transaction: any; // Native transaction object (Transaction, VersionedTransaction, etc.)
   networkId: NetworkId;
+  presignTransaction?: (transaction: string, context: PresignTransactionContext) => Promise<string>;
 }
 
 // Use the parsed transaction result instead of raw transaction

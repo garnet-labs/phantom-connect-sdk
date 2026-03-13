@@ -10,7 +10,7 @@ import type { SessionData } from "./types.js";
  * - File permissions are 0o600 (user-only rw)
  */
 export class SessionStorage {
-  private readonly sessionDir: string;
+  readonly sessionDir: string;
   private readonly sessionFile: string;
 
   constructor(sessionDir?: string) {

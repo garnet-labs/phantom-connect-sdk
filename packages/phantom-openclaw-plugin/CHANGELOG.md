@@ -1,5 +1,13 @@
 # @phantom/openclaw-plugin
 
+## 0.2.1
+
+### Patch Changes
+
+- 6ba2806: Fix add phantom_login
+- Updated dependencies [6ba2806]
+  - @phantom/mcp-server@0.2.1
+
 ## 0.2.0
 
 ### Minor Changes

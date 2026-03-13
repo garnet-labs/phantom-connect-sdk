@@ -19,7 +19,15 @@ export type { PhantomTheme, ComputedPhantomTheme, HexColor } from "@phantom/wall
 export * from "./types";
 
 // Re-export useful types and utilities from browser-sdk
-export { NetworkId, AddressType, DebugLevel, debug, isMobileDevice } from "@phantom/browser-sdk";
+export {
+  NetworkId,
+  AddressType,
+  DebugLevel,
+  debug,
+  isMobileDevice,
+  base64urlEncode,
+  base64urlDecode,
+} from "@phantom/browser-sdk";
 
 export type {
   EmbeddedProviderEvent,

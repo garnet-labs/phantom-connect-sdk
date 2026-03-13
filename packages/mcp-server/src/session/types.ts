@@ -37,9 +37,19 @@ export interface SessionData {
   authUserId: string;
   /** App/client ID used during authentication (for quote API key headers) */
   appId?: string;
+  /** Auth flow used to create this session */
+  authFlow?: "sso" | "device-code";
   stamperKeys: {
     publicKey: string;
     secretKey: string;
+  };
+  /** OAuth tokens — only present for device-code flow sessions */
+  oauthTokens?: {
+    accessToken: string;
+    refreshToken: string;
+    idToken?: string;
+    /** Unix timestamp when the access token expires */
+    expiresAt: number;
   };
   createdAt: number;
   updatedAt: number;

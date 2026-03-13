@@ -104,7 +104,7 @@ describe("DCRClient", () => {
       await dcrClient.register(testRedirectUri);
 
       expect(mockedAxios.post).toHaveBeenCalledWith(
-        "https://auth.phantom.app/oauth/register",
+        "https://auth.phantom.app/oauth2/register",
         expect.any(Object),
         expect.any(Object),
       );
@@ -277,7 +277,7 @@ describe("DCRClient", () => {
       await customDCRClient.register(testRedirectUri);
 
       expect(mockedAxios.post).toHaveBeenCalledWith(
-        "https://custom-auth.example.com/oauth/register",
+        "https://custom-auth.example.com/oauth2/register",
         expect.any(Object),
         expect.any(Object),
       );
@@ -321,7 +321,7 @@ describe("DCRClient", () => {
       await stagingDCRClient.register(testRedirectUri);
 
       expect(mockedAxios.post).toHaveBeenCalledWith(
-        "https://staging-auth.phantom.app/oauth/register",
+        "https://staging-auth.phantom.app/oauth2/register",
         expect.any(Object),
         expect.any(Object),
       );

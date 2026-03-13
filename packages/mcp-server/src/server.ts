@@ -64,6 +64,18 @@ export interface PhantomMCPServerOptions {
     callbackPort?: number;
     appId?: string;
     sessionDir?: string;
+    /**
+     * Authentication flow (default: "sso" or PHANTOM_AUTH_FLOW env var).
+     * - "sso": Browser redirect + localhost callback (default)
+     * - "device-code": RFC 8628 device authorization — terminal display + polling
+     */
+    authFlow?: "sso" | "device-code";
+    /**
+     * Target environment (default: "production" or PHANTOM_ENV env var).
+     * - "production": auth.phantom.app, connect.phantom.app
+     * - "staging": staging-auth.phantom.app, staging-connect.phantom.app
+     */
+    env?: "production" | "staging";
   };
 }
 
@@ -80,6 +92,12 @@ export class PhantomMCPServer {
   private readonly server: Server;
   private readonly sessionManager: SessionManager;
   private readonly logger: Logger;
+  /**
+   * Resolves when the startup initialization attempt finishes (success or failure).
+   * Tool call handlers await this so they don't race with the OAuth browser flow.
+   * The promise never rejects — errors are swallowed and logged in start().
+   */
+  private initPromise: Promise<void> | null = null;
 
   /**
    * Creates a new PhantomMCPServer instance
@@ -157,6 +175,13 @@ export class PhantomMCPServer {
       const toolName = request.params.name;
       this.logger.info(`Handling tools/call request for: ${toolName}`);
 
+      // Wait for startup initialization to complete (OAuth browser flow may still
+      // be in progress). This prevents "SessionManager not initialized" errors
+      // from racing with the first-boot auth flow.
+      if (this.initPromise) {
+        await this.initPromise;
+      }
+
       try {
         // Step 1: Get tool by name
         const tool = getTool(toolName);
@@ -172,6 +197,40 @@ export class PhantomMCPServer {
             ],
             isError: true,
           };
+        }
+
+        // phantom_login is handled before client/session resolution so it works
+        // even when the session is not yet initialized (first run, expired, etc.)
+        if (toolName === "phantom_login") {
+          this.logger.info("Handling phantom_login: resetting session");
+          try {
+            await this.sessionManager.resetSession();
+            const session = this.sessionManager.getSession();
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: JSON.stringify(
+                    {
+                      success: true,
+                      message: "Authentication successful.",
+                      walletId: session.walletId,
+                      authFlow: session.authFlow ?? "sso",
+                    },
+                    null,
+                    2,
+                  ),
+                },
+              ],
+            };
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            this.logger.error(`phantom_login failed: ${errorMessage}`);
+            return {
+              content: [{ type: "text" as const, text: JSON.stringify({ error: errorMessage }, null, 2) }],
+              isError: true,
+            };
+          }
         }
 
         // Step 2: Get PhantomClient from SessionManager
@@ -265,23 +324,33 @@ export class PhantomMCPServer {
   async start(): Promise<void> {
     this.logger.info("Starting PhantomMCPServer");
 
-    try {
-      // Connect stdio transport FIRST so Claude Desktop can complete the MCP
-      // handshake. Session initialization may open a browser for OAuth and
-      // must not block the transport from connecting.
-      this.logger.info("Connecting stdio transport");
-      const transport = new StdioServerTransport();
-      await this.server.connect(transport);
-      this.logger.info("Server connected and ready to accept requests");
+    // Connect stdio transport FIRST so Claude Desktop can complete the MCP
+    // handshake. Session initialization may open a browser for OAuth and
+    // must not block the transport from connecting.
+    this.logger.info("Connecting stdio transport");
+    const transport = new StdioServerTransport();
+    await this.server.connect(transport);
+    this.logger.info("Server connected and ready to accept requests");
 
-      // Initialize session after transport is connected
-      this.logger.info("Initializing session");
-      await this.sessionManager.initialize();
-      this.logger.info("Session initialized successfully");
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Failed to start server: ${errorMessage}`);
-      throw error;
-    }
+    // Initialize session after transport is connected.
+    // Auth failures are caught so the server stays alive — the user can call
+    // phantom_login to retry authentication without restarting the server.
+    //
+    // initPromise is stored on the instance so tool call handlers can await it.
+    // It never rejects: errors are swallowed here so that awaiting callers
+    // don't throw (they will naturally hit the getClient() guard instead).
+    this.logger.info("Initializing session");
+    this.initPromise = this.sessionManager
+      .initialize()
+      .then(() => {
+        this.logger.info("Session initialized successfully");
+      })
+      .catch((error: unknown) => {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.logger.error(`Session initialization failed: ${errorMessage}`);
+        this.logger.info("Server is running unauthenticated. Call phantom_login to authenticate.");
+      });
+
+    await this.initPromise;
   }
 }

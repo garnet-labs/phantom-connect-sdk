@@ -1273,6 +1273,48 @@ function EthereumExample() {
 }
 ```
 
+## Dapp-Sponsored Transactions (presignTransaction)
+
+Pass `presignTransaction` directly to `signAndSendTransaction` for calls that need co-signing. Calls without it proceed normally — it is never applied globally.
+
+> **Important:** Phantom embedded wallets do not accept pre-signed transactions. If your use case requires a second signer (e.g. your app as the fee payer), that signing must happen via this option, after Phantom has constructed and validated the transaction. This restriction does not apply to injected providers (e.g. the Phantom browser extension).
+
+> **Note:** `presignTransaction` only fires for Solana transactions via the embedded provider. EVM transactions and injected providers are unaffected.
+
+```tsx
+import { useSolana, base64urlDecode, base64urlEncode } from "@phantom/react-sdk";
+import { VersionedTransaction } from "@solana/web3.js";
+
+function SendWithFeeSponsor() {
+  const { solana } = useSolana();
+
+  const sendSponsored = async () => {
+    // This call co-signs as fee payer.
+    // presignTransaction should call your backend — never hold a fee payer keypair in frontend code.
+    const result = await solana.signAndSendTransaction(transaction, {
+      presignTransaction: async (tx, context) => {
+        // Send the transaction to your backend for fee payer signing.
+        // Your backend deserializes, partially signs, and returns the modified transaction.
+        const response = await fetch("/api/presign", {
+          method: "POST",
+          body: JSON.stringify({ transaction: tx, networkId: context.networkId }),
+          headers: { "Content-Type": "application/json" },
+        });
+        const { transaction: signedTx } = await response.json();
+        return signedTx; // base64url-encoded, partially signed by the fee payer
+      },
+    });
+  };
+
+  const sendNormal = async () => {
+    // This call has no co-signer
+    const result = await solana.signAndSendTransaction(transaction);
+  };
+}
+```
+
+> **Never hold a fee payer keypair in frontend code.** The `presignTransaction` callback runs in the browser — use it to call your own backend, which holds the keypair securely and returns the partially-signed transaction.
+
 ## Hooks Reference
 
 Quick reference of all available hooks:

@@ -17,6 +17,7 @@ interface DCRRegistrationRequest {
   response_types: string[];
   application_type: string;
   token_endpoint_auth_method: string;
+  scope?: string;
 }
 
 /**
@@ -61,7 +62,7 @@ export class DCRClient {
    * @throws Error if registration fails
    */
   async register(redirectUri: string): Promise<DCRClientConfig> {
-    const registrationEndpoint = `${this.authBaseUrl}/oauth/register`;
+    const registrationEndpoint = `${this.authBaseUrl}/oauth2/register`;
     const clientName = `${this.appId}-${Date.now()}`;
 
     const payload: DCRRegistrationRequest = {
@@ -77,8 +78,40 @@ export class DCRClient {
     this.logger.debug(`Registration endpoint: ${registrationEndpoint}`);
     this.logger.debug(`Redirect URI: ${redirectUri}`);
 
+    return this.doRegister(registrationEndpoint, payload);
+  }
+
+  /**
+   * Registers a new OAuth client for the RFC 8628 device authorization flow.
+   * Uses device_code grant instead of authorization_code, with no redirect URI.
+   *
+   * @returns Promise resolving to the client configuration
+   * @throws Error if registration fails
+   */
+  async registerForDeviceFlow(): Promise<DCRClientConfig> {
+    const registrationEndpoint = `${this.authBaseUrl}/oauth2/register`;
+    const clientName = `${this.appId}-${Date.now()}`;
+
+    const payload: DCRRegistrationRequest = {
+      client_name: clientName,
+      redirect_uris: [],
+      grant_types: ["urn:ietf:params:oauth:grant-type:device_code", "refresh_token"],
+      response_types: [],
+      application_type: "native",
+      // Device flow clients are public per RFC 8628 — no client secret
+      token_endpoint_auth_method: "none",
+      scope: "openid offline_access",
+    };
+
+    this.logger.info(`Registering OAuth client for device flow: ${clientName}`);
+    this.logger.debug(`Registration endpoint: ${registrationEndpoint}`);
+
+    return this.doRegister(registrationEndpoint, payload);
+  }
+
+  private async doRegister(endpoint: string, payload: DCRRegistrationRequest): Promise<DCRClientConfig> {
     try {
-      const response = await axios.post<DCRRegistrationResponse>(registrationEndpoint, payload, {
+      const response = await axios.post<DCRRegistrationResponse>(endpoint, payload, {
         headers: {
           "Content-Type": "application/json",
         },

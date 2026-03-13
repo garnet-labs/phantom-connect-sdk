@@ -11,6 +11,7 @@ import { ApiKeyStamper } from "@phantom/api-key-stamper";
 import { ANALYTICS_HEADERS, type ServerSdkHeaders } from "@phantom/constants";
 import { SessionStorage } from "./storage.js";
 import { OAuthFlow } from "../auth/oauth.js";
+import { DeviceFlowClient } from "../auth/device-flow.js";
 import type { SessionData } from "./types.js";
 import { Logger } from "../utils/logger.js";
 import * as packageJson from "../../package.json";
@@ -19,9 +20,9 @@ import * as packageJson from "../../package.json";
  * Configuration options for SessionManager
  */
 export interface SessionManagerOptions {
-  /** Base URL for OAuth authorization server (default: https://auth.phantom.app or PHANTOM_AUTH_BASE_URL env var) */
+  /** Base URL for OAuth authorization server (overrides PHANTOM_AUTH_BASE_URL and env-based default) */
   authBaseUrl?: string;
-  /** Base URL for Phantom Connect (default: https://connect.phantom.app or PHANTOM_CONNECT_BASE_URL env var) */
+  /** Base URL for Phantom Connect (overrides PHANTOM_CONNECT_BASE_URL and env-based default) */
   connectBaseUrl?: string;
   /** Base URL for Phantom API (default: https://api.phantom.app or PHANTOM_API_BASE_URL env var) */
   apiBaseUrl?: string;
@@ -33,6 +34,19 @@ export interface SessionManagerOptions {
   appId?: string;
   /** Directory to store session data (default: ~/.phantom-mcp) */
   sessionDir?: string;
+  /**
+   * Authentication flow to use (default: "sso" or PHANTOM_AUTH_FLOW env var).
+   * - "sso": Browser redirect + localhost callback (default)
+   * - "device-code": RFC 8628 device authorization — terminal display + polling
+   */
+  authFlow?: "sso" | "device-code";
+  /**
+   * Target environment (default: "production" or PHANTOM_ENV env var).
+   * Controls default auth and connect base URLs when not explicitly overridden.
+   * - "production": auth.phantom.app, connect.phantom.app
+   * - "staging": staging-auth.phantom.app, staging-connect.phantom.app
+   */
+  env?: "production" | "staging";
 }
 
 /**
@@ -48,11 +62,12 @@ export interface SessionManagerOptions {
  */
 export class SessionManager {
   private readonly authBaseUrl: string;
-  private readonly connectBaseUrl?: string;
+  private readonly connectBaseUrl: string;
   private readonly apiBaseUrl: string;
   private readonly callbackPort: number;
   private readonly callbackPath: string;
   private readonly appId: string;
+  private readonly authFlow: "sso" | "device-code";
   private readonly storage: SessionStorage;
   private readonly logger: Logger;
 
@@ -80,8 +95,47 @@ export class SessionManager {
    */
   constructor(options: SessionManagerOptions = {}) {
     this.logger = new Logger("SessionManager");
-    this.authBaseUrl = options.authBaseUrl ?? process.env.PHANTOM_AUTH_BASE_URL ?? "https://auth.phantom.app";
-    this.connectBaseUrl = options.connectBaseUrl ?? process.env.PHANTOM_CONNECT_BASE_URL;
+
+    // Resolve env — options take precedence; then validate the raw env var so
+    // typos like PHANTOM_ENV=proudction are caught instead of silently ignored.
+    let resolvedEnv: "production" | "staging";
+    if (options.env !== undefined) {
+      resolvedEnv = options.env;
+    } else if (process.env.PHANTOM_ENV !== undefined) {
+      const rawEnv = process.env.PHANTOM_ENV.trim();
+      if (rawEnv !== "production" && rawEnv !== "staging") {
+        throw new Error(`Invalid PHANTOM_ENV: "${rawEnv}". Must be "production" or "staging".`);
+      }
+      resolvedEnv = rawEnv;
+    } else {
+      resolvedEnv = "production";
+    }
+    const isStaging = resolvedEnv === "staging";
+
+    this.authBaseUrl =
+      options.authBaseUrl ??
+      process.env.PHANTOM_AUTH_BASE_URL ??
+      (isStaging ? "https://staging-auth.phantom.app" : "https://auth.phantom.app");
+
+    this.connectBaseUrl =
+      options.connectBaseUrl ??
+      process.env.PHANTOM_CONNECT_BASE_URL ??
+      (isStaging ? "https://staging-connect.phantom.app" : "https://connect.phantom.app");
+
+    // Resolve authFlow — same pattern: options first, then validate raw env var.
+    let resolvedAuthFlow: "sso" | "device-code";
+    if (options.authFlow !== undefined) {
+      resolvedAuthFlow = options.authFlow;
+    } else if (process.env.PHANTOM_AUTH_FLOW !== undefined) {
+      const rawAuthFlow = process.env.PHANTOM_AUTH_FLOW.trim();
+      if (rawAuthFlow !== "sso" && rawAuthFlow !== "device-code") {
+        throw new Error(`Invalid PHANTOM_AUTH_FLOW: "${rawAuthFlow}". Must be "sso" or "device-code".`);
+      }
+      resolvedAuthFlow = rawAuthFlow;
+    } else {
+      resolvedAuthFlow = "sso";
+    }
+    this.authFlow = resolvedAuthFlow;
     this.apiBaseUrl = options.apiBaseUrl ?? process.env.PHANTOM_API_BASE_URL ?? "https://api.phantom.app/v1/wallets";
 
     const defaultPort = 8080;
@@ -133,6 +187,27 @@ export class SessionManager {
       this.logger.info("Loaded valid session from storage");
       this.session = existingSession;
       this.createClient();
+
+      // Step 2a: Validate the session is still accepted server-side.
+      // A stored session can be revoked without the local file changing,
+      // so we make a lightweight API call to detect 401/403 on startup.
+      try {
+        await this.client!.getWalletAddresses(this.session.walletId);
+        this.logger.info("Session validated successfully");
+      } catch (error) {
+        const status = (error as { response?: { status?: number } }).response?.status;
+        if (status === 401 || status === 403) {
+          this.logger.warn("Stored session rejected by server (401/403) — re-authenticating");
+          this.storage.delete();
+          this.session = null;
+          this.client = null;
+          await this.authenticate();
+          return;
+        }
+        // Non-auth errors (network down, timeout) — keep the session and proceed
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`Session validation network error (${errorMessage}) — proceeding with cached session`);
+      }
       return;
     }
 
@@ -153,12 +228,11 @@ export class SessionManager {
    * cannot detect server-side session revocation. A truthy result means a
    * session file was loaded; it does not guarantee the server will accept it.
    *
-   * To detect an expired/revoked session:
-   *   1. Call any tool (e.g. get_wallet_addresses).
-   *   2. If the server returns HTTP 401/403, the MCP server automatically calls
-   *      resetSession() and retries once, opening the browser for re-auth.
-   *   3. If re-auth succeeds, the original tool is retried transparently.
-   *   4. If re-auth fails, the tool returns {error, code: "AUTH_EXPIRED"}.
+   * On startup, initialize() proactively validates a loaded session via a
+   * lightweight API call and re-authenticates immediately if it returns 401/403.
+   * During normal operation, any tool call that receives 401/403 automatically
+   * calls resetSession(), opens the browser for re-auth, and returns AUTH_EXPIRED
+   * so the agent can retry.
    *
    * @returns true if a session is loaded in memory
    */
@@ -210,21 +284,27 @@ export class SessionManager {
   }
 
   /**
-   * Executes the SSO flow and creates a new session
-   * Steps:
-   * 1. Execute SSO flow to get wallet/org IDs and stamper keypair
-   * 2. Create SessionData with SSO result and stamper keys
-   * 3. Save to storage
-   * 4. Create PhantomClient
+   * Authenticates using the configured auth flow and creates a new session.
+   * Delegates to SSO (browser + callback) or device-code (terminal + poll) flow.
    *
-   * Note: Stamper keypair is generated during SSO flow and public key is sent to auth server
+   * @throws Error if authentication fails
+   */
+  private async authenticate(): Promise<void> {
+    this.logger.info(`Starting authentication (flow: ${this.authFlow})`);
+
+    if (this.authFlow === "device-code") {
+      await this.authenticateWithDeviceFlow();
+    } else {
+      await this.authenticateWithSso();
+    }
+  }
+
+  /**
+   * Executes the SSO flow (browser redirect + localhost callback) and creates a new session.
    *
    * @throws Error if SSO flow fails
    */
-  private async authenticate(): Promise<void> {
-    this.logger.info("Starting authentication");
-
-    // Step 1: Execute SSO flow
+  private async authenticateWithSso(): Promise<void> {
     const oauthFlow = new OAuthFlow({
       authBaseUrl: this.authBaseUrl,
       connectBaseUrl: this.connectBaseUrl,
@@ -233,26 +313,57 @@ export class SessionManager {
       appId: this.appId,
     });
 
-    const oauthResult = await oauthFlow.authenticate();
+    const result = await oauthFlow.authenticate();
     this.logger.info("SSO flow completed successfully");
 
-    // Step 2: Create SessionData
     const now = Math.floor(Date.now() / 1000);
     this.session = {
-      walletId: oauthResult.walletId,
-      organizationId: oauthResult.organizationId,
-      authUserId: oauthResult.authUserId,
-      appId: oauthResult.clientConfig.client_id,
-      stamperKeys: oauthResult.stamperKeys,
+      walletId: result.walletId,
+      organizationId: result.organizationId,
+      authUserId: result.authUserId,
+      appId: result.clientConfig.client_id,
+      authFlow: "sso",
+      stamperKeys: result.stamperKeys,
       createdAt: now,
       updatedAt: now,
     };
 
-    // Step 3: Save to storage
     this.storage.save(this.session);
     this.logger.info("Session saved to storage");
+    this.createClient();
+  }
 
-    // Step 4: Create PhantomClient
+  /**
+   * Executes the RFC 8628 device authorization flow (terminal display + polling) and creates a new session.
+   *
+   * @throws Error if device flow fails
+   */
+  private async authenticateWithDeviceFlow(): Promise<void> {
+    const deviceFlow = new DeviceFlowClient({
+      authBaseUrl: this.authBaseUrl,
+      connectBaseUrl: this.connectBaseUrl,
+      appId: this.appId,
+      sessionDir: this.storage.sessionDir,
+    });
+
+    const result = await deviceFlow.authenticate();
+    this.logger.info("Device authorization flow completed successfully");
+
+    const now = Math.floor(Date.now() / 1000);
+    this.session = {
+      walletId: result.walletId,
+      organizationId: result.organizationId,
+      authUserId: result.authUserId,
+      appId: result.clientConfig.client_id,
+      authFlow: "device-code",
+      stamperKeys: result.stamperKeys,
+      oauthTokens: result.oauthTokens,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    this.storage.save(this.session);
+    this.logger.info("Session saved to storage");
     this.createClient();
   }
 

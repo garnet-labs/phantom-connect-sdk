@@ -10,6 +10,7 @@ import { getConnectionStatusTool } from "./get-connection-status.js";
 import { getTokenBalancesTool } from "./get-token-balances.js";
 import { transferTokensTool } from "./transfer-tokens.js";
 import { buyTokenTool } from "./buy-token.js";
+import { loginTool } from "./login.js";
 import { sendSolanaTransactionTool } from "./send-solana-transaction.js";
 import { sendEvmTransactionTool } from "./send-evm-transaction.js";
 import { signSolanaMessageTool } from "./sign-solana-message.js";
@@ -21,6 +22,7 @@ import type { ToolHandler } from "./types.js";
  * Array of all available tools
  */
 export const tools: ToolHandler[] = [
+  loginTool,
   // Wallet utilities
   getWalletAddressesTool,
   getConnectionStatusTool,

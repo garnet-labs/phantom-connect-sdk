@@ -31,6 +31,9 @@ export { isPhantomLoginAvailable } from "./isPhantomLoginAvailable";
 export { NetworkId } from "@phantom/constants";
 export { AddressType } from "@phantom/client";
 
+// Base64url utilities for working with transaction bytes in hooks
+export { base64urlEncode, base64urlDecode } from "@phantom/base64url";
+
 // Re-export auto-confirm types
 export type {
   AutoConfirmEnableParams,

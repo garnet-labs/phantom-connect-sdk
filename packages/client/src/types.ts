@@ -5,6 +5,11 @@ import type { Logger } from "@phantom/utils";
 
 export { type Logger } from "@phantom/utils";
 
+export interface PresignTransactionContext {
+  networkId: string; // e.g. "solana:mainnet-beta"
+  walletId: string; // the embedded wallet ID
+}
+
 export interface PhantomClientConfig {
   apiBaseUrl: string;
   organizationId?: string;
@@ -74,6 +79,7 @@ export interface SignTransactionParams {
   networkId: NetworkId;
   derivationIndex?: number; // Optional account derivation index (defaults to 0)
   account?: string; // Optional specific account address to use
+  presignTransaction?: (transaction: string, context: PresignTransactionContext) => Promise<string>;
 }
 
 export interface SignAndSendTransactionParams {
@@ -82,6 +88,7 @@ export interface SignAndSendTransactionParams {
   networkId: NetworkId;
   derivationIndex?: number; // Optional account derivation index (defaults to 0)
   account?: string; // Optional specific account address to use
+  presignTransaction?: (transaction: string, context: PresignTransactionContext) => Promise<string>;
 }
 
 export interface GetWalletWithTagParams {
