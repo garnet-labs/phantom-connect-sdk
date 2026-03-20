@@ -13,20 +13,22 @@
  * createConnectStartUrl, exchangeAuthCode, etc.) run as real code.
  */
 
-const mockDiscoverOrganizationId = jest.fn().mockResolvedValue("org-rn-int-123");
-const mockListPendingMigrationIds = jest.fn().mockResolvedValue([]);
+const mockGetOrCreatePhantomOrganization = jest.fn().mockResolvedValue({ organizationId: "org-rn-int-123" });
+const mockListPendingMigrations = jest.fn().mockResolvedValue({ pendingMigrations: [] });
 const mockCompleteWalletTransfer = jest.fn().mockResolvedValue(undefined);
-const mockDiscoverWalletId = jest.fn().mockResolvedValue("wallet-rn-int-456");
+const mockGetOrganizationWallets = jest.fn().mockResolvedValue({ wallets: [] });
+const mockGetOrCreateWalletWithTag = jest.fn().mockResolvedValue({ walletId: "wallet-rn-int-456", tags: [] });
 
 jest.mock("@phantom/auth2", () => {
   const actual = jest.requireActual<Record<string, unknown>>("@phantom/auth2");
   return {
     ...actual,
     Auth2KmsRpcClient: jest.fn().mockImplementation(() => ({
-      discoverOrganizationId: mockDiscoverOrganizationId,
-      listPendingMigrationIds: mockListPendingMigrationIds,
+      getOrCreatePhantomOrganization: mockGetOrCreatePhantomOrganization,
+      listPendingMigrations: mockListPendingMigrations,
       completeWalletTransfer: mockCompleteWalletTransfer,
-      discoverWalletId: mockDiscoverWalletId,
+      getOrganizationWallets: mockGetOrganizationWallets,
+      getOrCreateWalletWithTag: mockGetOrCreateWalletWithTag,
     })),
   };
 });
@@ -101,10 +103,11 @@ beforeEach(() => {
   mockSubtle.sign.mockResolvedValue(MOCK_SIG.buffer.slice(0) as ArrayBuffer);
   mockSubtle.digest.mockResolvedValue(MOCK_DIGEST_BYTES.buffer.slice(0) as ArrayBuffer);
   mockSubtle.importKey.mockResolvedValue(mockPrivateKey);
-  mockDiscoverOrganizationId.mockResolvedValue("org-rn-int-123");
-  mockListPendingMigrationIds.mockResolvedValue([]);
+  mockGetOrCreatePhantomOrganization.mockResolvedValue({ organizationId: "org-rn-int-123" });
+  mockListPendingMigrations.mockResolvedValue({ pendingMigrations: [] });
   mockCompleteWalletTransfer.mockResolvedValue(undefined);
-  mockDiscoverWalletId.mockResolvedValue("wallet-rn-int-456");
+  mockGetOrganizationWallets.mockResolvedValue({ wallets: [] });
+  mockGetOrCreateWalletWithTag.mockResolvedValue({ walletId: "wallet-rn-int-456", tags: [] });
   (globalThis as any).fetch = jest.fn().mockResolvedValue(mockTokenResponse());
   jest.clearAllMocks();
 });
@@ -152,10 +155,11 @@ describe("ExpoAuth2 React Native flow — end-to-end", () => {
       url: buildCallbackUrl({ code: "rn-auth-code", state: "rn-int-session-1" }),
     });
     (SecureStore.getItemAsync as jest.Mock).mockResolvedValue(null);
-    mockDiscoverOrganizationId.mockResolvedValue("org-rn-int-123");
-    mockListPendingMigrationIds.mockResolvedValue([]);
+    mockGetOrCreatePhantomOrganization.mockResolvedValue({ organizationId: "org-rn-int-123" });
+    mockListPendingMigrations.mockResolvedValue({ pendingMigrations: [] });
     mockCompleteWalletTransfer.mockResolvedValue(undefined);
-    mockDiscoverWalletId.mockResolvedValue("wallet-rn-int-456");
+    mockGetOrganizationWallets.mockResolvedValue({ wallets: [] });
+    mockGetOrCreateWalletWithTag.mockResolvedValue({ walletId: "wallet-rn-int-456", tags: [] });
     (globalThis as any).fetch = jest.fn().mockResolvedValue(mockTokenResponse());
   });
 
@@ -287,7 +291,7 @@ describe("ExpoAuth2 React Native flow — end-to-end", () => {
     const provider = makeProvider(stamper);
     await provider.authenticate(CONNECT_OPTIONS);
 
-    expect(mockDiscoverOrganizationId).toHaveBeenCalled();
-    expect(mockDiscoverWalletId).toHaveBeenCalledWith("org-rn-int-123");
+    expect(mockGetOrCreatePhantomOrganization).toHaveBeenCalled();
+    expect(mockGetOrCreateWalletWithTag).toHaveBeenCalled();
   });
 });

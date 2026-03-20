@@ -11,18 +11,20 @@
  * createConnectStartUrl, exchangeAuthCode, etc.) run as real code.
  */
 
-const mockDiscoverOrganizationId = jest.fn().mockResolvedValue("org-integration-123");
-const mockListPendingMigrationIds = jest.fn().mockResolvedValue([]);
-const mockDiscoverWalletId = jest.fn().mockResolvedValue("wallet-integration-456");
+const mockGetOrCreatePhantomOrganization = jest.fn().mockResolvedValue({ organizationId: "org-integration-123" });
+const mockListPendingMigrations = jest.fn().mockResolvedValue({ pendingMigrations: [] });
+const mockGetOrganizationWallets = jest.fn().mockResolvedValue({ wallets: [] });
+const mockGetOrCreateWalletWithTag = jest.fn().mockResolvedValue({ walletId: "wallet-integration-456", tags: [] });
 
 jest.mock("@phantom/auth2", () => {
   const actual = jest.requireActual<Record<string, unknown>>("@phantom/auth2");
   return {
     ...actual,
     Auth2KmsRpcClient: jest.fn().mockImplementation(() => ({
-      discoverOrganizationId: mockDiscoverOrganizationId,
-      listPendingMigrationIds: mockListPendingMigrationIds,
-      discoverWalletId: mockDiscoverWalletId,
+      getOrCreatePhantomOrganization: mockGetOrCreatePhantomOrganization,
+      listPendingMigrations: mockListPendingMigrations,
+      getOrganizationWallets: mockGetOrganizationWallets,
+      getOrCreateWalletWithTag: mockGetOrCreateWalletWithTag,
     })),
   };
 });
@@ -94,9 +96,10 @@ beforeEach(() => {
   mockSubtle.sign.mockResolvedValue(MOCK_SIG.buffer.slice(0) as ArrayBuffer);
   mockSubtle.digest.mockResolvedValue(MOCK_DIGEST.buffer.slice(0) as ArrayBuffer);
   mockSubtle.importKey.mockResolvedValue(mockPrivateKey);
-  mockDiscoverOrganizationId.mockResolvedValue("org-integration-123");
-  mockListPendingMigrationIds.mockResolvedValue([]);
-  mockDiscoverWalletId.mockResolvedValue("wallet-integration-456");
+  mockGetOrCreatePhantomOrganization.mockResolvedValue({ organizationId: "org-integration-123" });
+  mockListPendingMigrations.mockResolvedValue({ pendingMigrations: [] });
+  mockGetOrganizationWallets.mockResolvedValue({ wallets: [] });
+  mockGetOrCreateWalletWithTag.mockResolvedValue({ walletId: "wallet-integration-456", tags: [] });
   (globalThis.fetch as jest.Mock).mockResolvedValue(mockTokenResponse());
   navigateSpy = jest.spyOn(Auth2AuthProvider, "navigate").mockImplementation(() => {});
 });
@@ -199,8 +202,8 @@ describe("Auth2 browser flow — end-to-end", () => {
       "https://auth.example.com/oauth2/token",
       expect.objectContaining({ method: "POST" }),
     );
-    expect(mockDiscoverOrganizationId).toHaveBeenCalled();
-    expect(mockDiscoverWalletId).toHaveBeenCalled();
+    expect(mockGetOrCreatePhantomOrganization).toHaveBeenCalled();
+    expect(mockGetOrCreateWalletWithTag).toHaveBeenCalled();
   });
 
   it("stamper key persists across provider instances (same IndexedDB)", async () => {
