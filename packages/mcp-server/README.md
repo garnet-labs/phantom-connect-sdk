@@ -27,6 +27,19 @@ An MCP (Model Context Protocol) server that provides LLMs like Claude with direc
   - `sign_evm_typed_data` - Sign EIP-712 typed structured data (DeFi permits, order signing)
   - `transfer_tokens` - Transfer native tokens or fungible tokens on Solana and EVM chains (builds, signs, and sends)
   - `buy_token` - Fetch a swap quote from Phantom's routing engine for Solana, EVM, and cross-chain swaps (optionally executes)
+- **Perpetuals Trading** (Hyperliquid via Phantom backend — see [PERPS.md](./PERPS.md) for full docs):
+  - `deposit_to_hyperliquid` - Bridge tokens from Solana/EVM into Hyperliquid perp account (full flow)
+  - `get_perp_account` - Perp account balance and available margin
+  - `get_perp_markets` - Available markets with price, funding rate, open interest, and max leverage
+  - `get_perp_positions` - Open positions with size, entry price, leverage, unrealized PnL, and liquidation price
+  - `get_perp_orders` - Open limit, take-profit, and stop-loss orders
+  - `get_perp_trade_history` - Historical fills with fee and closed PnL
+  - `open_perp_position` - Open a market or limit long/short with configurable leverage
+  - `close_perp_position` - Full or partial position close via market order
+  - `cancel_perp_order` - Cancel an open order by ID
+  - `update_perp_leverage` - Change leverage and margin type (isolated/cross)
+  - `transfer_spot_to_perps` - Move USDC from Hypercore spot to perp account
+  - `withdraw_from_perps` - Move USDC from Hypercore perp back to spot account
 
 ## Installation
 
@@ -230,7 +243,7 @@ All EVM tools (`send_evm_transaction`, `sign_evm_personal_message`, `sign_evm_ty
 ## Available Tools
 
 > **Execution Warning**
-> `send_solana_transaction`, `send_evm_transaction`, `transfer_tokens`, and `buy_token` (when `execute: true`) all submit transactions immediately and irreversibly. Always verify parameters before calling these tools.
+> `send_solana_transaction`, `send_evm_transaction`, `transfer_tokens`, `buy_token` (when `execute: true`), `deposit_to_hyperliquid`, `open_perp_position`, `close_perp_position`, `cancel_perp_order`, `update_perp_leverage`, `transfer_spot_to_perps`, and `withdraw_from_perps` all submit transactions immediately and irreversibly. Always verify parameters before calling these tools.
 
 ---
 
@@ -780,6 +793,38 @@ The steps array inside `quoteResponse.quotes[0].steps` describes the full bridge
   }
 }
 ```
+
+---
+
+### Perpetuals Tools (Hyperliquid)
+
+The MCP server includes 12 tools for perpetuals trading on Hyperliquid via Phantom's backend. For full parameter reference, examples, and the typical agent workflow see **[PERPS.md](./PERPS.md)**.
+
+#### Read-only
+
+| Tool                     | Description                                                                               |
+| ------------------------ | ----------------------------------------------------------------------------------------- |
+| `get_perp_account`       | Perp account balance: `accountValue`, `availableBalance`, `availableToTrade`              |
+| `get_perp_markets`       | All markets with price, funding rate, open interest, 24h volume, max leverage             |
+| `get_perp_positions`     | Open positions: direction, size, entry price, leverage, unrealized PnL, liquidation price |
+| `get_perp_orders`        | Open limit/TP/SL orders with ID, price, size, reduce-only flag                            |
+| `get_perp_trade_history` | Historical fills with fee and closed PnL                                                  |
+
+#### Write
+
+| Tool                     | Description                                                                                                   |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `deposit_to_hyperliquid` | Full bridge flow from Solana/EVM → Hypercore spot → perp (handles transfer, bridging, spot sell, and deposit) |
+| `open_perp_position`     | Market or limit long/short; `sizeUsd` is the notional value                                                   |
+| `close_perp_position`    | Market close, full or partial (`sizePercent`, default 100%)                                                   |
+| `cancel_perp_order`      | Cancel by `orderId` (get IDs from `get_perp_orders`)                                                          |
+| `update_perp_leverage`   | Set leverage and margin type (`isolated` or `cross`)                                                          |
+| `transfer_spot_to_perps` | Move USDC within Hypercore: spot → perp                                                                       |
+| `withdraw_from_perps`    | Move USDC within Hypercore: perp → spot                                                                       |
+
+> **Note:** The perps write tools (`open_perp_position`, `close_perp_position`, `cancel_perp_order`, `update_perp_leverage`, `transfer_spot_to_perps`, `withdraw_from_perps`) sign Hyperliquid typed actions using the wallet's EVM key via EIP-712 (`chainId: 42161`). Accounts are identified by their EVM address on Hypercore. `deposit_to_hyperliquid` is different — it routes through the Phantom cross-chain swapper and does not use EIP-712.
+
+---
 
 ## Configuration
 

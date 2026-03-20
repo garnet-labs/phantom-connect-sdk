@@ -1,31 +1,32 @@
-const mockDiscoverOrganizationAndWalletId = jest
-  .fn()
-  .mockResolvedValue({ organizationId: "org-rn-123", walletId: "wallet-rn-456" });
-const mockCreateConnectStartUrl = jest
-  .fn()
-  .mockResolvedValue(
-    "https://auth.example.com/login/start?client_id=rn-client-id&redirect_uri=myapp%3A%2F%2Fcallback&response_type=code&scope=openid&nonce=rn-nonce&state=rn-session-1&code_challenge=rn-code-challenge&code_challenge_method=S256",
-  );
+const mockPrepareAuth2Flow = jest.fn().mockResolvedValue({
+  url: "https://auth.example.com/login/start?client_id=rn-client-id&state=rn-session-1",
+  codeVerifier: "rn-code-verifier",
+  keyPair: { privateKey: {}, publicKey: {} },
+});
 
-jest.mock("@phantom/auth2", () => ({
-  createCodeVerifier: jest.fn().mockReturnValue("rn-code-verifier"),
-  createConnectStartUrl: mockCreateConnectStartUrl,
-  exchangeAuthCode: jest.fn().mockResolvedValue({
-    idToken: "rn-id-token",
-    bearerToken: "Bearer rn-id-token",
-    authUserId: "rn-user-1",
-    expiresInMs: 7_200_000,
-    refreshToken: "rn-refresh-token",
-  }),
-  Auth2KmsRpcClient: jest.fn().mockImplementation(() => ({
-    discoverOrganizationAndWalletId: mockDiscoverOrganizationAndWalletId,
-  })),
-}));
+const mockCompleteAuth2Exchange = jest.fn().mockResolvedValue({
+  walletId: "wallet-rn-456",
+  organizationId: "org-rn-123",
+  provider: "google",
+  accountDerivationIndex: 0,
+  expiresInMs: 7_200_000,
+  authUserId: "rn-user-1",
+  bearerToken: "Bearer rn-id-token",
+});
+
+jest.mock("@phantom/auth2", () => {
+  const actual = jest.requireActual<Record<string, unknown>>("@phantom/auth2");
+  return {
+    prepareAuth2Flow: mockPrepareAuth2Flow,
+    completeAuth2Exchange: mockCompleteAuth2Exchange,
+    validateAuth2Callback: actual.validateAuth2Callback,
+    Auth2KmsRpcClient: jest.fn().mockImplementation(() => ({})),
+  };
+});
 
 import type { AuthResult } from "@phantom/embedded-provider-core";
 import * as WebBrowser from "expo-web-browser";
 import { ExpoAuth2AuthProvider } from "./ExpoAuth2AuthProvider";
-import { createCodeVerifier, createConnectStartUrl, exchangeAuthCode } from "@phantom/auth2";
 
 const AUTH2_OPTIONS = {
   clientId: "rn-client-id",
@@ -36,33 +37,14 @@ const AUTH2_OPTIONS = {
 
 const KMS_OPTIONS = { apiBaseUrl: "https://kms.example.com", appId: "rn-app" };
 
-const mockCryptoKeyPair: CryptoKeyPair = {
-  privateKey: { type: "private", algorithm: { name: "ECDSA" } } as CryptoKey,
-  publicKey: { type: "public", algorithm: { name: "ECDSA" } } as CryptoKey,
-};
-
-function makeStamper(initialized = true) {
+function makeStamper() {
   return {
-    stamp: jest.fn().mockResolvedValue("rn-mock-stamp"),
-    getKeyInfo: jest
-      .fn()
-      .mockReturnValue(
-        initialized
-          ? { keyId: "k1", publicKey: "7EcDshMsTHCs2f2HU2a3n36x9JkEVVenF9oQQGy5U3s", createdAt: Date.now() }
-          : null,
-      ),
-    getCryptoKeyPair: jest.fn().mockReturnValue(mockCryptoKeyPair),
-    init: jest.fn().mockResolvedValue({
-      keyId: "k1",
-      publicKey: "7EcDshMsTHCs2f2HU2a3n36x9JkEVVenF9oQQGy5U3s",
-      createdAt: Date.now(),
-    }),
-    getTokens: jest.fn().mockResolvedValue({
-      idToken: "rn-id-token",
-      bearerToken: "Bearer rn-id-token",
-      refreshToken: "rn-refresh-token",
-    }),
-    setTokens: jest.fn().mockResolvedValue(undefined),
+    stamp: jest.fn(),
+    getKeyInfo: jest.fn().mockReturnValue({ keyId: "k1", publicKey: "pub", createdAt: Date.now() }),
+    getCryptoKeyPair: jest.fn().mockReturnValue({ privateKey: {}, publicKey: {} }),
+    init: jest.fn(),
+    getTokens: jest.fn(),
+    setTokens: jest.fn(),
     rotateKeyPair: jest.fn(),
     commitRotation: jest.fn(),
     rollbackRotation: jest.fn(),
@@ -79,8 +61,8 @@ function makeProvider(stamper = makeStamper()) {
   return new ExpoAuth2AuthProvider(stamper as unknown as StamperArg, AUTH2_OPTIONS, KMS_OPTIONS);
 }
 
-function successResult(callbackUrl: string) {
-  return { type: "success" as const, url: callbackUrl };
+function successResult(url: string) {
+  return { type: "success" as const, url };
 }
 
 function callbackUrl(params: Record<string, string> = {}) {
@@ -104,79 +86,53 @@ describe("ExpoAuth2AuthProvider.authenticate()", () => {
     (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue(
       successResult(callbackUrl({ code: "auth-code", state: "rn-session-1" })),
     );
-    mockCreateConnectStartUrl.mockResolvedValue(
-      "https://auth.example.com/login/start?client_id=rn-client-id&redirect_uri=myapp%3A%2F%2Fcallback&response_type=code&scope=openid&nonce=rn-nonce&state=rn-session-1&code_challenge=rn-code-challenge&code_challenge_method=S256",
-    );
+    mockPrepareAuth2Flow.mockResolvedValue({
+      url: "https://auth.example.com/login/start?client_id=rn-client-id&state=rn-session-1",
+      codeVerifier: "rn-code-verifier",
+      keyPair: { privateKey: {}, publicKey: {} },
+    });
+    mockCompleteAuth2Exchange.mockResolvedValue({
+      walletId: "wallet-rn-456",
+      organizationId: "org-rn-123",
+      provider: "google",
+      accountDerivationIndex: 0,
+      expiresInMs: 7_200_000,
+      authUserId: "rn-user-1",
+      bearerToken: "Bearer rn-id-token",
+    });
   });
 
   afterEach(() => {
     jest.clearAllMocks();
   });
 
-  it("calls stamper.init() when the stamper is not yet loaded", async () => {
-    const stamper = makeStamper(false);
-    (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValueOnce(
-      successResult(callbackUrl({ code: "c", state: "rn-session-1" })),
-    );
-
-    await makeProvider(stamper).authenticate(CONNECT_OPTIONS);
-
-    expect(stamper.init).toHaveBeenCalled();
-  });
-
-  it("skips stamper.init() when the stamper is already loaded", async () => {
-    const stamper = makeStamper(true);
-
-    await makeProvider(stamper).authenticate(CONNECT_OPTIONS);
-
-    expect(stamper.init).not.toHaveBeenCalled();
-  });
-
-  it("throws when getCryptoKeyPair() returns null", async () => {
-    const stamper = makeStamper(true);
-    stamper.getCryptoKeyPair.mockReturnValue(null);
-
-    await expect(makeProvider(stamper).authenticate(CONNECT_OPTIONS)).rejects.toThrow("Stamper key pair not found.");
-  });
-
-  it("creates a PKCE code verifier", async () => {
+  it("calls prepareAuth2Flow with the stamper and auth options", async () => {
     await makeProvider().authenticate(CONNECT_OPTIONS);
 
-    expect(createCodeVerifier).toHaveBeenCalled();
-  });
-
-  it("calls createConnectStartUrl with the correct options", async () => {
-    await makeProvider().authenticate(CONNECT_OPTIONS);
-
-    expect(createConnectStartUrl).toHaveBeenCalledWith(
+    expect(mockPrepareAuth2Flow).toHaveBeenCalledWith(
       expect.objectContaining({
-        keyPair: mockCryptoKeyPair,
-        connectLoginUrl: AUTH2_OPTIONS.connectLoginUrl,
-        clientId: AUTH2_OPTIONS.clientId,
-        redirectUri: AUTH2_OPTIONS.redirectUri,
+        auth2Options: AUTH2_OPTIONS,
         sessionId: CONNECT_OPTIONS.sessionId,
         provider: CONNECT_OPTIONS.provider,
-        codeVerifier: "rn-code-verifier",
-        salt: "",
       }),
     );
   });
 
-  it("calls setTokens with idToken, refreshToken, and expiresInMs after successful token exchange", async () => {
-    const stamper = makeStamper(true);
-    await makeProvider(stamper).authenticate(CONNECT_OPTIONS);
+  it("propagates errors from prepareAuth2Flow (e.g. missing key pair)", async () => {
+    mockPrepareAuth2Flow.mockRejectedValueOnce(new Error("Stamper key pair not found."));
 
-    expect(stamper.setTokens).toHaveBeenCalledWith({
-      idToken: "rn-id-token",
-      bearerToken: "Bearer rn-id-token",
-      refreshToken: "rn-refresh-token",
-      expiresInMs: 7_200_000,
-    });
+    await expect(makeProvider().authenticate(CONNECT_OPTIONS)).rejects.toThrow("Stamper key pair not found.");
   });
 
-  it("passes the createConnectStartUrl result to openAuthSessionAsync", async () => {
+  it("passes the correct provider to prepareAuth2Flow", async () => {
+    await makeProvider().authenticate({ ...CONNECT_OPTIONS, provider: "apple" });
+
+    expect(mockPrepareAuth2Flow).toHaveBeenCalledWith(expect.objectContaining({ provider: "apple" }));
+  });
+
+  it("passes the URL from prepareAuth2Flow to openAuthSessionAsync", async () => {
     const mockUrl = "https://auth.example.com/login/start?foo=bar";
-    mockCreateConnectStartUrl.mockResolvedValueOnce(mockUrl);
+    mockPrepareAuth2Flow.mockResolvedValueOnce({ url: mockUrl, codeVerifier: "v", keyPair: {} });
     (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValueOnce(
       successResult(callbackUrl({ code: "c", state: "rn-session-1" })),
     );
@@ -192,30 +148,6 @@ describe("ExpoAuth2AuthProvider.authenticate()", () => {
 
     const [, redirectArg] = (WebBrowser.openAuthSessionAsync as jest.Mock).mock.calls[0] as [string, string];
     expect(redirectArg).toBe("myapp://callback");
-  });
-
-  it("passes provider=google to createConnectStartUrl", async () => {
-    await makeProvider().authenticate({ ...CONNECT_OPTIONS, provider: "google" });
-
-    expect(createConnectStartUrl).toHaveBeenCalledWith(expect.objectContaining({ provider: "google" }));
-  });
-
-  it("passes provider=apple to createConnectStartUrl", async () => {
-    await makeProvider().authenticate({ ...CONNECT_OPTIONS, provider: "apple" });
-
-    expect(createConnectStartUrl).toHaveBeenCalledWith(expect.objectContaining({ provider: "apple" }));
-  });
-
-  it("passes provider=phantom to createConnectStartUrl", async () => {
-    await makeProvider().authenticate({ ...CONNECT_OPTIONS, provider: "phantom" });
-
-    expect(createConnectStartUrl).toHaveBeenCalledWith(expect.objectContaining({ provider: "phantom" }));
-  });
-
-  it("passes provider=device to createConnectStartUrl", async () => {
-    await makeProvider().authenticate({ ...CONNECT_OPTIONS, provider: "device" });
-
-    expect(createConnectStartUrl).toHaveBeenCalledWith(expect.objectContaining({ provider: "device" }));
   });
 
   it("calls warmUpAsync before and coolDownAsync after the browser session", async () => {
@@ -276,42 +208,35 @@ describe("ExpoAuth2AuthProvider.authenticate()", () => {
 
   it("throws when code param is missing from the callback URL", async () => {
     (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValueOnce(
-      successResult(callbackUrl({ state: "rn-session-1" })), // no code
+      successResult(callbackUrl({ state: "rn-session-1" })),
     );
 
     await expect(makeProvider().authenticate(CONNECT_OPTIONS)).rejects.toThrow("missing authorization code");
   });
 
-  it("proceeds without CSRF error when state is absent", async () => {
-    (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValueOnce(
-      successResult(callbackUrl({ code: "c" })), // no state
-    );
+  it("throws on CSRF when state is absent", async () => {
+    (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValueOnce(successResult(callbackUrl({ code: "c" })));
 
-    await expect(makeProvider().authenticate(CONNECT_OPTIONS)).resolves.not.toBeNull();
+    await expect(makeProvider().authenticate(CONNECT_OPTIONS)).rejects.toThrow("CSRF");
   });
 
-  it("exchanges the authorization code using exchangeAuthCode", async () => {
+  it("calls completeAuth2Exchange with the code from the callback URL", async () => {
     await makeProvider().authenticate(CONNECT_OPTIONS);
 
-    expect(exchangeAuthCode).toHaveBeenCalledWith({
-      authApiBaseUrl: AUTH2_OPTIONS.authApiBaseUrl,
-      clientId: AUTH2_OPTIONS.clientId,
-      redirectUri: AUTH2_OPTIONS.redirectUri,
-      code: "auth-code",
-      codeVerifier: "rn-code-verifier",
-    });
+    expect(mockCompleteAuth2Exchange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        auth2Options: AUTH2_OPTIONS,
+        code: "auth-code",
+        codeVerifier: "rn-code-verifier",
+        provider: CONNECT_OPTIONS.provider,
+      }),
+    );
   });
 
-  it("throws when KMS returns no organizationId", async () => {
-    mockDiscoverOrganizationAndWalletId.mockRejectedValueOnce(new Error("Unable to resolve organizationId"));
+  it("propagates errors from completeAuth2Exchange (e.g. KMS failure)", async () => {
+    mockCompleteAuth2Exchange.mockRejectedValueOnce(new Error("Unable to resolve organizationId"));
 
     await expect(makeProvider().authenticate(CONNECT_OPTIONS)).rejects.toThrow("Unable to resolve organizationId");
-  });
-
-  it("throws when KMS returns no walletId", async () => {
-    mockDiscoverOrganizationAndWalletId.mockRejectedValueOnce(new Error("Unable to resolve walletId"));
-
-    await expect(makeProvider().authenticate(CONNECT_OPTIONS)).rejects.toThrow("Unable to resolve walletId");
   });
 
   it("returns a complete AuthResult including bearerToken", async () => {
@@ -328,13 +253,17 @@ describe("ExpoAuth2AuthProvider.authenticate()", () => {
     });
   });
 
-  it("passes authUserId to discoverOrganizationAndWalletId", async () => {
-    await makeProvider().authenticate(CONNECT_OPTIONS);
-
-    expect(mockDiscoverOrganizationAndWalletId).toHaveBeenCalledWith("Bearer rn-id-token", "rn-user-1");
-  });
-
   it("uses the provider from connectOptions in the AuthResult", async () => {
+    mockCompleteAuth2Exchange.mockResolvedValueOnce({
+      walletId: "w",
+      organizationId: "o",
+      provider: "apple",
+      accountDerivationIndex: 0,
+      expiresInMs: 0,
+      authUserId: undefined,
+      bearerToken: "Bearer t",
+    });
+
     const result = await makeProvider().authenticate({ ...CONNECT_OPTIONS, provider: "apple" });
 
     expect((result as AuthResult)?.provider).toBe("apple");

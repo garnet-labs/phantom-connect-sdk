@@ -1,5 +1,6 @@
 import * as SecureStore from "expo-secure-store";
-import { ExpoAuth2Stamper } from "./ExpoAuth2Stamper";
+import { Auth2Stamper } from "@phantom/auth2";
+import { SecureStoreAuth2StamperStorage } from "./SecureStoreAuth2StamperStorage";
 
 const MOCK_RAW_PUBLIC_KEY = new Uint8Array([0x04, ...Array(64).fill(0x11)]); // 65-byte P-256
 const MOCK_PKCS8 = new Uint8Array(100).fill(0x22);
@@ -26,6 +27,13 @@ jest.mock("@phantom/base64url", () => ({
   base64urlEncode: jest.fn((data: Uint8Array) => Buffer.from(data).toString("base64url")),
 }));
 
+function makeJwt(payload: Record<string, unknown>): string {
+  const encode = (obj: unknown) => Buffer.from(JSON.stringify(obj)).toString("base64url");
+  return `${encode({ alg: "HS256", typ: "JWT" })}.${encode({ aud: [], ...payload })}.sig`;
+}
+
+const DEFAULT_ACCESS_TOKEN = makeJwt({ sub: "default-user", ext: { a2t: "default-auth2-token" } });
+
 beforeEach(() => {
   Object.defineProperty(globalThis.crypto, "subtle", {
     value: mockSubtle,
@@ -45,7 +53,7 @@ beforeEach(() => {
 });
 
 function makeStamper(storageKey = `phantom-auth2-test-${Math.random()}`) {
-  return new ExpoAuth2Stamper(storageKey);
+  return new Auth2Stamper(new SecureStoreAuth2StamperStorage(storageKey));
 }
 
 // Pre-computed: bs58.encode(MOCK_RAW_PUBLIC_KEY) where MOCK_RAW_PUBLIC_KEY = [0x04, 0x11 × 64]
@@ -64,7 +72,7 @@ function storedRecord(extras: object = {}, pkcs8Base64 = Buffer.from(MOCK_PKCS8)
   });
 }
 
-describe("ExpoAuth2Stamper", () => {
+describe("Auth2Stamper (SecureStore)", () => {
   describe("getKeyInfo()", () => {
     it("returns null before init()", () => {
       expect(makeStamper().getKeyInfo()).toBeNull();
@@ -97,7 +105,7 @@ describe("ExpoAuth2Stamper", () => {
     it("exports PKCS#8 private key and persists to SecureStore", async () => {
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(null);
       const storageKey = "phantom-auth2-app-1";
-      const stamper = new ExpoAuth2Stamper(storageKey);
+      const stamper = new Auth2Stamper(new SecureStoreAuth2StamperStorage(storageKey));
 
       await stamper.init();
 
@@ -120,7 +128,7 @@ describe("ExpoAuth2Stamper", () => {
       expect(keyInfo.publicKey).toBe(STORED_PUBLIC_KEY_BASE58);
     });
 
-    it("imports the stored PKCS#8 key as non-extractable in memory", async () => {
+    it("imports the stored PKCS#8 key as extractable so save() can re-export it", async () => {
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord());
 
       const stamper = makeStamper();
@@ -132,27 +140,23 @@ describe("ExpoAuth2Stamper", () => {
         // Using objectContaining avoids cross-realm instanceof issues between Buffer and Uint8Array.
         expect.objectContaining({ byteLength: MOCK_PKCS8.byteLength }),
         { name: "ECDSA", namedCurve: "P-256" },
-        false, // non-extractable in memory
+        true, // extractable so save() can re-export via pkcs8
         ["sign"],
       );
     });
 
-    it("generates a new key when SecureStore returns invalid JSON", async () => {
+    it("throws when SecureStore returns invalid JSON (corrupt stored record)", async () => {
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce("not-valid-json");
 
       const stamper = makeStamper();
-      await stamper.init();
-
-      expect(mockSubtle.generateKey).toHaveBeenCalled();
+      await expect(stamper.init()).rejects.toThrow(/corrupt stored record/);
     });
 
-    it("generates a new key when SecureStore.getItemAsync throws", async () => {
+    it("throws when SecureStore.getItemAsync itself throws", async () => {
       (SecureStore.getItemAsync as jest.Mock).mockRejectedValueOnce(new Error("Keychain error"));
 
       const stamper = makeStamper();
-      await stamper.init();
-
-      expect(mockSubtle.generateKey).toHaveBeenCalled();
+      await expect(stamper.init()).rejects.toThrow("Keychain error");
     });
 
     it("keyInfo.keyId is the first 16 chars of base64url(SHA-256(rawPublicKey))", async () => {
@@ -165,13 +169,16 @@ describe("ExpoAuth2Stamper", () => {
       expect(keyInfo.keyId).toBe(expected);
     });
 
-    it("restores the id token from SecureStore on init()", async () => {
-      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord({ idToken: "persisted-token" }));
+    it("restores the access token from SecureStore on init()", async () => {
+      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(
+        storedRecord({ accessToken: DEFAULT_ACCESS_TOKEN, idType: "Bearer" }),
+      );
 
       const stamper = makeStamper();
       await stamper.init();
 
-      // stamp() should succeed without any additional setTokens call.
+      // stamp() should succeed without any additional setTokens call because
+      // parseClaims() extracts auth2Token from the restored accessToken.
       await expect(stamper.stamp({ type: "OIDC", data: Buffer.from("payload") })).resolves.toBeTruthy();
     });
   });
@@ -185,29 +192,34 @@ describe("ExpoAuth2Stamper", () => {
 
       // setTokens reads the existing record to merge — return it
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord());
-      await stamper.setTokens({ idToken: "my-token", bearerToken: "Bearer my-token" });
+      await stamper.setTokens({ accessToken: DEFAULT_ACCESS_TOKEN, idType: "Bearer" });
 
       await expect(stamper.stamp({ type: "OIDC", data: Buffer.from("payload") })).resolves.toBeTruthy();
     });
 
-    it("persists idToken, bearerToken, and refreshToken to SecureStore", async () => {
+    it("persists accessToken, idType, and refreshToken to SecureStore", async () => {
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(null);
       const storageKey = "phantom-auth2-persist-test";
-      const stamper = new ExpoAuth2Stamper(storageKey);
+      const stamper = new Auth2Stamper(new SecureStoreAuth2StamperStorage(storageKey));
       await stamper.init();
 
+      const tokenX = makeJwt({ sub: "u", ext: { a2t: "a2t-x" } });
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord());
-      await stamper.setTokens({ idToken: "token-x", bearerToken: "Bearer token-x", refreshToken: "refresh-x" });
+      await stamper.setTokens({ accessToken: tokenX, idType: "Bearer", refreshToken: "refresh-x" });
 
       const lastSaveCall = (SecureStore.setItemAsync as jest.Mock).mock.calls.at(-1) as [string, string];
-      const saved = JSON.parse(lastSaveCall[1]) as { idToken?: string; bearerToken?: string; refreshToken?: string };
-      expect(saved.idToken).toBe("token-x");
-      expect(saved.bearerToken).toBe("Bearer token-x");
+      const saved = JSON.parse(lastSaveCall[1]) as { accessToken?: string; idType?: string; refreshToken?: string };
+      expect(saved.accessToken).toBe(tokenX);
+      expect(saved.idType).toBe("Bearer");
       expect(saved.refreshToken).toBe("refresh-x");
     });
 
-    it("restores token in stamp output after a reload", async () => {
-      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord({ idToken: "reload-token" }));
+    it("restores auth2Token in stamp output after a reload", async () => {
+      // auth2Token is derived from the accessToken via parseClaims → jwtDecode (ext.a2t claim)
+      const reloadAccessToken = makeJwt({ sub: "u", ext: { a2t: "reload-auth2-token" } });
+      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(
+        storedRecord({ accessToken: reloadAccessToken, idType: "Bearer" }),
+      );
 
       const stamper = makeStamper();
       await stamper.init();
@@ -216,46 +228,7 @@ describe("ExpoAuth2Stamper", () => {
       const decoded = JSON.parse(Buffer.from(stampStr, "base64url").toString()) as {
         idToken: string;
       };
-      expect(decoded.idToken).toBe("reload-token");
-    });
-  });
-
-  describe("getTokens()", () => {
-    it("returns null before setTokens() is called", async () => {
-      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(null);
-      const stamper = makeStamper();
-      await stamper.init();
-
-      expect(await stamper.getTokens()).toBeNull();
-    });
-
-    it("returns idToken, bearerToken, and refreshToken after setTokens()", async () => {
-      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(null);
-      const stamper = makeStamper();
-      await stamper.init();
-      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord());
-      await stamper.setTokens({
-        idToken: "id-tok",
-        bearerToken: "Bearer access-token",
-        refreshToken: "refresh-tok",
-      });
-
-      const tokens = await stamper.getTokens();
-
-      expect(tokens?.idToken).toBe("id-tok");
-      expect(tokens?.bearerToken).toBe("Bearer access-token");
-      expect(tokens?.refreshToken).toBe("refresh-tok");
-    });
-
-    it("returns null after clear()", async () => {
-      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(null);
-      const stamper = makeStamper();
-      await stamper.init();
-      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord());
-      await stamper.setTokens({ idToken: "id-tok", bearerToken: "Bearer access-token" });
-      await stamper.clear();
-
-      expect(await stamper.getTokens()).toBeNull();
+      expect(decoded.idToken).toBe("reload-auth2-token");
     });
   });
 
@@ -272,7 +245,7 @@ describe("ExpoAuth2Stamper", () => {
       const stamper = makeStamper();
       await stamper.init();
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord());
-      await stamper.setTokens({ idToken: "", bearerToken: "Bearer " });
+      await stamper.setTokens({ accessToken: DEFAULT_ACCESS_TOKEN, idType: "Bearer" });
 
       await stamper.stamp({ type: "OIDC", data: Buffer.from("payload") });
 
@@ -292,13 +265,15 @@ describe("ExpoAuth2Stamper", () => {
       await expect(stamper.stamp({ type: "OIDC", data: Buffer.from("msg") })).rejects.toThrow("not initialized");
     });
 
-    it("returns an OIDC stamp with the id token from setTokens()", async () => {
+    it("returns an OIDC stamp with the auth2Token extracted from the access token", async () => {
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(null);
 
       const stamper = makeStamper();
       await stamper.init();
+
+      const rnAccessToken = makeJwt({ sub: "u", ext: { a2t: "rn-auth2-token" } });
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord());
-      await stamper.setTokens({ idToken: "rn-id-token", bearerToken: "Bearer rn-id-token" });
+      await stamper.setTokens({ accessToken: rnAccessToken, idType: "Bearer" });
 
       const stampStr = await stamper.stamp({ type: "OIDC", data: Buffer.from("payload") });
       const decoded = JSON.parse(Buffer.from(stampStr, "base64url").toString()) as {
@@ -311,7 +286,7 @@ describe("ExpoAuth2Stamper", () => {
       };
 
       expect(decoded.kind).toBe("OIDC");
-      expect(decoded.idToken).toBe("rn-id-token");
+      expect(decoded.idToken).toBe("rn-auth2-token");
       expect(decoded.algorithm).toBe("Secp256r1");
       expect(decoded.salt).toBe("");
       expect(typeof decoded.publicKey).toBe("string");
@@ -324,7 +299,7 @@ describe("ExpoAuth2Stamper", () => {
       const stamper = makeStamper();
       await stamper.init();
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord());
-      await stamper.setTokens({ idToken: "", bearerToken: "Bearer " });
+      await stamper.setTokens({ accessToken: DEFAULT_ACCESS_TOKEN, idType: "Bearer" });
 
       const stampStr = await stamper.stamp({ type: "OIDC", data: Buffer.from("x") });
       const decoded = JSON.parse(Buffer.from(stampStr, "base64url").toString()) as { publicKey: string };
@@ -354,20 +329,20 @@ describe("ExpoAuth2Stamper", () => {
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(null);
       const storageKey = "reset-key";
 
-      const stamper = new ExpoAuth2Stamper(storageKey);
+      const stamper = new Auth2Stamper(new SecureStoreAuth2StamperStorage(storageKey));
       await stamper.init();
       await stamper.resetKeyPair();
 
       expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith(storageKey);
     });
 
-    it("clears the id token", async () => {
+    it("clears the auth2Token so stamp() throws after reset", async () => {
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(null);
 
       const stamper = makeStamper();
       await stamper.init();
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord());
-      await stamper.setTokens({ idToken: "t", bearerToken: "Bearer t" });
+      await stamper.setTokens({ accessToken: DEFAULT_ACCESS_TOKEN, idType: "Bearer" });
 
       await stamper.resetKeyPair();
 
@@ -390,7 +365,7 @@ describe("ExpoAuth2Stamper", () => {
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(null);
 
       const storageKey = "clear-key";
-      const stamper = new ExpoAuth2Stamper(storageKey);
+      const stamper = new Auth2Stamper(new SecureStoreAuth2StamperStorage(storageKey));
       await stamper.init();
       await stamper.clear();
 
@@ -417,39 +392,27 @@ describe("ExpoAuth2Stamper", () => {
   });
 
   describe("rotateKeyPair()", () => {
-    it("delegates to init() and returns a keyInfo", async () => {
-      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(null); // for init()
-      (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(null); // for rotateKeyPair -> init()
-
-      const stamper = makeStamper();
-      await stamper.init();
-      const info = await stamper.rotateKeyPair();
-
-      expect(info).toBeTruthy();
-    });
-  });
-
-  describe("commitRotation()", () => {
-    it("sets authenticatorId on keyInfo when initialized", async () => {
+    it("throws because Auth2 does not use key rotation", async () => {
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(null);
 
       const stamper = makeStamper();
       await stamper.init();
-      await stamper.commitRotation("auth-id-abc");
 
-      expect(stamper.getKeyInfo()!.authenticatorId).toBe("auth-id-abc");
+      await expect(stamper.rotateKeyPair()).rejects.toThrow("not supported");
     });
+  });
 
-    it("is a no-op when not initialized", async () => {
+  describe("commitRotation()", () => {
+    it("throws because Auth2 does not use key rotation", async () => {
       const stamper = makeStamper();
 
-      await expect(stamper.commitRotation("id")).resolves.toBeUndefined();
+      await expect(stamper.commitRotation("any")).rejects.toThrow("not supported");
     });
   });
 
   describe("rollbackRotation()", () => {
-    it("is a no-op and resolves", async () => {
-      await expect(makeStamper().rollbackRotation()).resolves.toBeUndefined();
+    it("throws because Auth2 does not use key rotation", async () => {
+      await expect(makeStamper().rollbackRotation()).rejects.toThrow("not supported");
     });
   });
 });

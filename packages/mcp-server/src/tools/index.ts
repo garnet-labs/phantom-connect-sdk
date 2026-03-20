@@ -16,6 +16,18 @@ import { sendEvmTransactionTool } from "./send-evm-transaction.js";
 import { signSolanaMessageTool } from "./sign-solana-message.js";
 import { signEvmPersonalMessageTool } from "./sign-evm-personal-message.js";
 import { signEvmTypedDataTool } from "./sign-evm-typed-data.js";
+import { getPerpMarketsTool } from "./get-perp-markets.js";
+import { getPerpAccountTool } from "./get-perp-account.js";
+import { getPerpPositionsTool } from "./get-perp-positions.js";
+import { getPerpOrdersTool } from "./get-perp-orders.js";
+import { getPerpTradeHistoryTool } from "./get-perp-trade-history.js";
+import { openPerpPositionTool } from "./open-perp-position.js";
+import { closePerpPositionTool } from "./close-perp-position.js";
+import { cancelPerpOrderTool } from "./cancel-perp-order.js";
+import { updatePerpLeverageTool } from "./update-perp-leverage.js";
+import { transferSpotToPerpsTool } from "./transfer-spot-to-perps.js";
+import { depositToHyperliquidTool } from "./deposit-to-hyperliquid.js";
+import { withdrawFromPerpsTool } from "./withdraw-from-perps.js";
 import type { ToolHandler } from "./types.js";
 
 /**
@@ -36,6 +48,20 @@ export const tools: ToolHandler[] = [
   sendEvmTransactionTool,
   signEvmPersonalMessageTool,
   signEvmTypedDataTool,
+  // Perps tools (read)
+  getPerpMarketsTool,
+  getPerpAccountTool,
+  getPerpPositionsTool,
+  getPerpOrdersTool,
+  getPerpTradeHistoryTool,
+  // Perps tools (write)
+  openPerpPositionTool,
+  closePerpPositionTool,
+  cancelPerpOrderTool,
+  updatePerpLeverageTool,
+  transferSpotToPerpsTool,
+  withdrawFromPerpsTool,
+  depositToHyperliquidTool,
 ];
 
 /**

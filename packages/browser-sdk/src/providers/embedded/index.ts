@@ -1,12 +1,13 @@
 import { EmbeddedProvider as CoreEmbeddedProvider } from "@phantom/embedded-provider-core";
 import type { EmbeddedProviderConfig, PlatformAdapter } from "@phantom/embedded-provider-core";
 import { IndexedDbStamper } from "@phantom/indexed-db-stamper";
+import { Auth2Stamper } from "@phantom/auth2";
 import {
   BrowserStorage,
   BrowserURLParamsAccessor,
   BrowserAuthProvider,
   Auth2AuthProvider,
-  Auth2Stamper,
+  IndexedDBAuth2StamperStorage,
   BrowserPhantomAppProvider,
   BrowserLogger,
 } from "./adapters";
@@ -26,7 +27,7 @@ export class EmbeddedProvider extends CoreEmbeddedProvider implements Provider {
     const storage = new BrowserStorage();
 
     const stamper = config.unstable__auth2Options
-      ? new Auth2Stamper(`phantom-auth2-${config.appId}`, {
+      ? new Auth2Stamper(new IndexedDBAuth2StamperStorage(`phantom-auth2-${config.appId}`), {
           authApiBaseUrl: config.unstable__auth2Options.authApiBaseUrl,
           clientId: config.unstable__auth2Options.clientId,
           redirectUri: config.authOptions?.redirectUrl ?? "",

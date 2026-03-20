@@ -167,7 +167,7 @@ export const buyTokenTool: ToolHandler = {
   description:
     "Phantom Wallet — Fetches an optimized swap quote from Phantom's routing engine and can optionally execute it. " +
     "Supports same-chain Solana swaps, same-chain EVM swaps (Ethereum, Base, Polygon, Arbitrum, Monad), and cross-chain swaps between Solana and EVM chains. " +
-    "Both sellChainId and buyChainId must be either a Solana chain (solana:*) or an EVM chain (eip155:*); other namespaces (bip122, sui, etc.) are not supported. " +
+    "Both sellChainId and buyChainId must be a Solana chain (solana:*), EVM chain (eip155:*), or Hypercore/Hyperliquid (hypercore:*); other namespaces are not supported. " +
     "Use this for ALL swap/exchange operations (e.g. 'swap USDC to SOL', 'buy ETH on Base', 'bridge SOL to ETH'). " +
     "Use sellChainId to specify the source chain and buyChainId for the destination (omit both for Solana, same as before). " +
     "For native tokens (SOL, ETH, MATIC) always use sellTokenIsNative/buyTokenIsNative — never use magic addresses like 0xeeee...eeee. " +
@@ -311,8 +311,11 @@ export const buyTokenTool: ToolHandler = {
     }
 
     const isBuyEvm = buySwapperChainId.startsWith("eip155:");
-    if (!isBuySolana && !isBuyEvm) {
-      throw new Error(`Unsupported buy chain: ${buySwapperChainId}. Supported: solana:*, eip155:*`);
+    // Hypercore (Hyperliquid) is a supported cross-chain destination via the Relay bridge.
+    // It uses EVM-style wallet addresses but is its own chain namespace.
+    const isBuyHypercore = buySwapperChainId.startsWith("hypercore:");
+    if (!isBuySolana && !isBuyEvm && !isBuyHypercore) {
+      throw new Error(`Unsupported buy chain: ${buySwapperChainId}. Supported: solana:*, eip155:*, hypercore:*`);
     }
 
     // --- Basic param validation ---
@@ -437,9 +440,11 @@ export const buyTokenTool: ToolHandler = {
 
     // Cross-chain: add takerDestination and chainAddresses
     if (isCrossChain) {
-      const destinationAddress = isBuyEvm
-        ? await getEthereumAddress(context, walletId, derivationIndex)
-        : await getSolanaAddress(context, walletId, derivationIndex);
+      // Hypercore uses EVM-style addresses (same key as Arbitrum/Ethereum)
+      const destinationAddress =
+        isBuyEvm || isBuyHypercore
+          ? await getEthereumAddress(context, walletId, derivationIndex)
+          : await getSolanaAddress(context, walletId, derivationIndex);
 
       body.takerDestination = {
         chainId: buySwapperChainId,

@@ -28,6 +28,7 @@ module.exports = {
     "^expo-web-browser$": "<rootDir>/src/test/mocks/expo-web-browser.js",
     "^expo-auth-session$": "<rootDir>/src/test/mocks/expo-auth-session.js",
     "^expo-router$": "<rootDir>/src/test/mocks/expo-router.js",
+    "^jwt-decode$": "<rootDir>/src/test/mocks/jwt-decode.js",
     "^react-native$": "<rootDir>/src/test/mocks/react-native.js",
   },
   moduleDirectories: ["node_modules", "<rootDir>/../../node_modules"],

@@ -1,5 +1,13 @@
 # @phantom/openclaw-plugin
 
+## 0.2.2
+
+### Patch Changes
+
+- 92e3472: Perps Support
+- Updated dependencies [92e3472]
+  - @phantom/mcp-server@0.2.2
+
 ## 0.2.1
 
 ### Patch Changes

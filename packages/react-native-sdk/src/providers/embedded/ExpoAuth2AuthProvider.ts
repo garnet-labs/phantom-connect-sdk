@@ -1,13 +1,13 @@
 import * as WebBrowser from "expo-web-browser";
 import type { AuthProvider, AuthResult, PhantomConnectOptions } from "@phantom/embedded-provider-core";
 import {
-  createCodeVerifier,
-  exchangeAuthCode,
   Auth2KmsRpcClient,
+  prepareAuth2Flow,
+  validateAuth2Callback,
+  completeAuth2Exchange,
   type Auth2AuthProviderOptions,
   type Auth2KmsClientOptions,
   type Auth2StamperWithKeyManagement,
-  createConnectStartUrl,
 } from "@phantom/auth2";
 
 export class ExpoAuth2AuthProvider implements AuthProvider {
@@ -31,32 +31,13 @@ export class ExpoAuth2AuthProvider implements AuthProvider {
    * so the token exchange and KMS calls all happen here before returning AuthResult.
    */
   async authenticate(options: PhantomConnectOptions): Promise<void | AuthResult> {
-    // Ensure the stamper has an active key loaded (may already be initialized).
-    if (!this.stamper.getKeyInfo()) {
-      await this.stamper.init();
-    }
-
-    const keyPair = this.stamper.getCryptoKeyPair();
-    if (!keyPair) {
-      throw new Error("Stamper key pair not found.");
-    }
-
-    const codeVerifier = createCodeVerifier();
-
-    const url = await createConnectStartUrl({
-      keyPair,
-      connectLoginUrl: this.auth2ProviderOptions.connectLoginUrl,
-      clientId: this.auth2ProviderOptions.clientId,
-      redirectUri: this.auth2ProviderOptions.redirectUri,
+    const { url, codeVerifier } = await prepareAuth2Flow({
+      stamper: this.stamper,
+      auth2Options: this.auth2ProviderOptions,
       sessionId: options.sessionId,
       provider: options.provider,
-      codeVerifier,
-      // The P-256 ephemeral key is unique per wallet, so no additional salt is needed.
-      salt: "",
     });
 
-    // Open the OAuth flow in an embedded browser; expo-web-browser intercepts
-    // the redirect back to this app's custom scheme and returns the callback URL.
     await WebBrowser.warmUpAsync();
 
     let result: Awaited<ReturnType<typeof WebBrowser.openAuthSessionAsync>>;
@@ -71,46 +52,18 @@ export class ExpoAuth2AuthProvider implements AuthProvider {
     }
 
     const callbackUrl = new URL(result.url);
-
-    const state = callbackUrl.searchParams.get("state");
-    if (state && state !== options.sessionId) {
-      throw new Error("Auth2 state mismatch — possible CSRF attack.");
-    }
-
-    // Check for auth server errors in the callback URL.
-    const error = callbackUrl.searchParams.get("error");
-    if (error) {
-      const description = callbackUrl.searchParams.get("error_description");
-      throw new Error(`Auth2 callback error: ${description ?? error}`);
-    }
-
-    const code = callbackUrl.searchParams.get("code");
-    if (!code) {
-      throw new Error("Auth2 callback missing authorization code");
-    }
-
-    const { idToken, bearerToken, authUserId, expiresInMs, refreshToken } = await exchangeAuthCode({
-      authApiBaseUrl: this.auth2ProviderOptions.authApiBaseUrl,
-      clientId: this.auth2ProviderOptions.clientId,
-      redirectUri: this.auth2ProviderOptions.redirectUri,
-      code,
-      codeVerifier,
+    const code = validateAuth2Callback({
+      getParam: key => callbackUrl.searchParams.get(key),
+      expectedSessionId: options.sessionId,
     });
 
-    // Arm the stamper with the id token (and optional refresh token) for KMS requests.
-    // Persisted to SecureStore so auto-connect can restore it on the next app launch.
-    await this.stamper.setTokens({ idToken, bearerToken, refreshToken, expiresInMs });
-
-    const { organizationId, walletId } = await this.kms.discoverOrganizationAndWalletId(bearerToken, authUserId);
-
-    return {
-      walletId,
-      organizationId,
+    return completeAuth2Exchange({
+      stamper: this.stamper,
+      kms: this.kms,
+      auth2Options: this.auth2ProviderOptions,
+      code,
+      codeVerifier,
       provider: options.provider,
-      accountDerivationIndex: 0, // discoverWalletId uses derivation index of 0.
-      expiresInMs,
-      authUserId,
-      bearerToken,
-    };
+    });
   }
 }

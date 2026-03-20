@@ -1,18 +1,24 @@
 import {
   Configuration,
   KMSRPCApi,
-  type KmsRpcRequest,
   GetOrCreatePhantomOrganizationMethodEnum,
   GetOrganizationWalletsMethodEnum,
-  CreateWalletMethodEnum,
+  GetOrCreateWalletWithTagMethodEnum,
+  type KmsRpcRequest,
+  type KmsRpcResponseV2,
+  type ExternalKmsOrganization,
+  type OrganizationWallets,
+  type KmsWalletWithDerivedAccounts,
+  type DerivationInfoSchema,
 } from "@phantom/openapi-wallet-service";
 import axios from "axios";
-import bs58 from "bs58";
 import { Buffer } from "buffer";
-import { base64urlEncode } from "@phantom/base64url";
 import type { Auth2StamperWithKeyManagement } from "./index";
 
 const DEFAULT_KMS_API_VERSION = "2025-11-24";
+
+const ORGANIZATION_WALLETS_LIMIT = 20;
+const ORGANIZATION_WALLETS_OFFSET = 0;
 
 export type Auth2KmsClientOptions = {
   apiBaseUrl: string;
@@ -41,11 +47,10 @@ export class Auth2KmsRpcClient {
       config.headers["x-app-id"] = options.appId;
       config.headers["x-api-version"] = DEFAULT_KMS_API_VERSION;
 
-      // Refresh the token if needed before stamping, so the id_token in the
-      // stamp body and the authorization header are always consistent.
-      const tokens = await this.stamper.getTokens();
-      if (tokens) {
-        config.headers["authorization"] = tokens.bearerToken;
+      config.headers["authorization"] = this.stamper.bearerToken;
+      const authUserId = this.stamper.auth2Token?.sub;
+      if (authUserId) {
+        config.headers["x-auth-user-id"] = authUserId;
       }
 
       const requestBody =
@@ -60,126 +65,81 @@ export class Auth2KmsRpcClient {
     this.kmsApi = new KMSRPCApi(configuration, options.apiBaseUrl, axiosInstance);
   }
 
-  private async postKmsRpc(request: KmsRpcRequest, bearerToken: string, authUserId?: string): Promise<unknown> {
-    const headers: Record<string, string> = { authorization: bearerToken };
-    if (authUserId) {
-      headers["x-auth-user-id"] = authUserId;
-    }
-
-    const response = await this.kmsApi.postKmsRpc(request, { headers });
+  private async postKmsRpc<T>(request: KmsRpcRequest): Promise<T> {
+    const response = await this.kmsApi.postKmsRpc(request);
 
     // Surface JSON-RPC level errors (KMS returns HTTP 200 with error body).
-    const rpcBody = response.data as { error?: { code?: number; message?: string } } | null;
-    if (rpcBody?.error) {
+    const rpcBody: KmsRpcResponseV2 = response.data;
+    if ("error" in rpcBody) {
       throw new Error(`KMS RPC error: ${JSON.stringify(rpcBody.error)}`);
     }
 
-    return response.data;
+    return rpcBody.result as T;
   }
 
-  private extractOrganizationId(body: unknown): string | null {
-    const result = (body as { result?: unknown } | null)?.result;
-    return extractStringFromPath(result, "organizationId", "organization_id");
+  public async getOrCreatePhantomOrganization(publicKey: string): Promise<ExternalKmsOrganization> {
+    return await this.postKmsRpc<ExternalKmsOrganization>({
+      method: GetOrCreatePhantomOrganizationMethodEnum.getOrCreatePhantomOrganization,
+      params: { publicKey },
+      timestampMs: Date.now(),
+    } as KmsRpcRequest);
   }
 
-  public async discoverOrganizationAndWalletId(
-    bearerToken: string,
-    authUserId?: string,
-  ): Promise<{ organizationId: string; walletId: string }> {
-    const organizationId = await this.discoverOrganizationId(bearerToken, authUserId);
-    if (!organizationId) {
-      throw new Error("Unable to resolve organizationId. The Auth2 KMS did not return one.");
-    }
+  // listPendingMigrations is not yet in @phantom/openapi-wallet-service
+  public async listPendingMigrations(
+    organizationId: string,
+  ): Promise<{ pendingMigrations?: Array<{ migrationId?: string }> }> {
+    return await this.postKmsRpc<{ pendingMigrations?: Array<{ migrationId?: string }> }>({
+      method: "listPendingMigrations",
+      params: { organizationId },
+      timestampMs: Date.now(),
+    } as unknown as KmsRpcRequest);
+  }
 
-    const walletId = await this.discoverWalletId(bearerToken, organizationId, authUserId);
-    if (!walletId) {
-      throw new Error("Unable to resolve walletId. The Auth2 KMS did not return or create one.");
-    }
+  // completeWalletTransfer is not yet in @phantom/openapi-wallet-service
+  public async completeWalletTransfer(args: { organizationId: string; migrationId: string }): Promise<unknown> {
+    return await this.postKmsRpc({
+      method: "completeWalletTransfer",
+      params: args,
+      timestampMs: Date.now(),
+    } as unknown as KmsRpcRequest);
+  }
+
+  public async getOrganizationWallets(organizationId: string): Promise<OrganizationWallets> {
+    const allWallets: OrganizationWallets["wallets"] = [];
+    let offset = ORGANIZATION_WALLETS_OFFSET;
+    let page: OrganizationWallets;
+
+    do {
+      page = await this.postKmsRpc<OrganizationWallets>({
+        method: GetOrganizationWalletsMethodEnum.getOrganizationWallets,
+        params: { organizationId, limit: ORGANIZATION_WALLETS_LIMIT, offset },
+        timestampMs: Date.now(),
+      } as KmsRpcRequest);
+
+      allWallets.push(...page.wallets);
+      offset += ORGANIZATION_WALLETS_LIMIT;
+    } while (page.wallets.length === ORGANIZATION_WALLETS_LIMIT);
 
     return {
-      organizationId,
-      walletId,
+      wallets: allWallets,
+      limit: allWallets.length,
+      offset: 0,
+      totalCount: allWallets.length,
     };
   }
 
-  private async discoverOrganizationId(bearerToken: string, authUserId?: string): Promise<string | null> {
-    const keyInfo = this.stamper.getKeyInfo();
-    if (!keyInfo) {
-      throw new Error("Stamper not initialized");
-    }
-    const publicKey = base64urlEncode(bs58.decode(keyInfo.publicKey));
-
-    const created = await this.postKmsRpc(
-      {
-        method: GetOrCreatePhantomOrganizationMethodEnum.getOrCreatePhantomOrganization,
-        params: { publicKey },
-        timestampMs: Date.now(),
-      } as KmsRpcRequest,
-      bearerToken,
-      authUserId,
-    );
-    return this.extractOrganizationId(created);
+  public async getOrCreateWalletWithTag(args: {
+    organizationId: string;
+    walletName: string;
+    tag: string;
+    accounts: Array<DerivationInfoSchema>;
+    mnemonicLength: number;
+  }): Promise<KmsWalletWithDerivedAccounts> {
+    return await this.postKmsRpc<KmsWalletWithDerivedAccounts>({
+      method: GetOrCreateWalletWithTagMethodEnum.getOrCreateWalletWithTag,
+      params: args,
+      timestampMs: Date.now(),
+    } as KmsRpcRequest);
   }
-
-  private async discoverWalletId(
-    bearerToken: string,
-    organizationId: string,
-    authUserId?: string,
-  ): Promise<string | null> {
-    const listResponse = await this.postKmsRpc(
-      {
-        method: GetOrganizationWalletsMethodEnum.getOrganizationWallets,
-        params: { organizationId, limit: 20, offset: 0 },
-        timestampMs: Date.now(),
-      } as KmsRpcRequest,
-      bearerToken,
-      authUserId,
-    );
-
-    const result = (listResponse as { result?: unknown } | null)?.result;
-    const wallets = (result as { wallets?: unknown } | null)?.wallets;
-
-    if (Array.isArray(wallets) && wallets.length > 0) {
-      return extractStringFromPath(wallets[0], "walletId", "wallet_id");
-    }
-
-    // No wallets exist — create one with default accounts for all supported chains.
-    const createResponse = await this.postKmsRpc(
-      {
-        method: CreateWalletMethodEnum.createWallet,
-        params: {
-          walletName: `Auth2 SDK Wallet ${Date.now()}`,
-          organizationId,
-          accounts: [
-            { curve: "Ed25519", derivationPath: "m/44'/501'/0'/0'", addressFormat: "Solana" },
-            { curve: "Secp256k1", derivationPath: "m/44'/60'/0'/0/0", addressFormat: "Ethereum" },
-            { curve: "Secp256k1", derivationPath: "m/84'/0'/0'/0", addressFormat: "BitcoinSegwit" },
-            { curve: "Ed25519", derivationPath: "m/44'/784'/0'/0'/0'", addressFormat: "Sui" },
-          ],
-        },
-        timestampMs: Date.now(),
-      } as KmsRpcRequest,
-      bearerToken,
-      authUserId,
-    );
-
-    const createResult = (createResponse as { result?: unknown } | null)?.result;
-    return extractStringFromPath(createResult, "walletId", "wallet_id");
-  }
-}
-
-/** Extracts the first matching string value from an object's nested properties. */
-function extractStringFromPath(obj: unknown, ...keys: string[]): string | null {
-  if (!obj || typeof obj !== "object") {
-    return null;
-  }
-
-  for (const key of keys) {
-    const val = (obj as Record<string, unknown>)[key];
-    if (typeof val === "string" && val.trim().length > 0) {
-      return val.trim();
-    }
-  }
-
-  return null;
 }

@@ -22,7 +22,8 @@ import { PhantomContext, type PhantomContextValue, type PhantomErrors } from "./
 import { ExpoSecureStorage } from "./providers/embedded/storage";
 import { ExpoAuthProvider } from "./providers/embedded/auth";
 import { ExpoAuth2AuthProvider } from "./providers/embedded/ExpoAuth2AuthProvider";
-import { ExpoAuth2Stamper } from "./providers/embedded/ExpoAuth2Stamper";
+import { Auth2Stamper } from "@phantom/auth2";
+import { SecureStoreAuth2StamperStorage } from "./providers/embedded/SecureStoreAuth2StamperStorage";
 import { ExpoURLParamsAccessor } from "./providers/embedded/url-params";
 import { ReactNativeStamper } from "./providers/embedded/stamper";
 import { ExpoLogger } from "./providers/embedded/logger";
@@ -73,7 +74,7 @@ export function PhantomProvider({ children, config, debugConfig, theme, appIcon,
 
     const stamper =
       config.unstable__auth2Options && config.authOptions?.redirectUrl
-        ? new ExpoAuth2Stamper(`phantom-auth2-${memoizedConfig.appId}`, {
+        ? new Auth2Stamper(new SecureStoreAuth2StamperStorage(`phantom-auth2-${memoizedConfig.appId}`), {
             authApiBaseUrl: config.unstable__auth2Options.authApiBaseUrl,
             clientId: config.unstable__auth2Options.clientId,
             redirectUri: config.authOptions.redirectUrl,
@@ -88,7 +89,7 @@ export function PhantomProvider({ children, config, debugConfig, theme, appIcon,
       config.authOptions?.authUrl &&
       config.authOptions?.redirectUrl &&
       config.apiBaseUrl &&
-      stamper instanceof ExpoAuth2Stamper
+      stamper instanceof Auth2Stamper
         ? new ExpoAuth2AuthProvider(
             stamper,
             {

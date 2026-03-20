@@ -1,4 +1,5 @@
-import { Auth2Stamper } from "./Auth2Stamper";
+import { Auth2Stamper } from "@phantom/auth2";
+import { IndexedDBAuth2StamperStorage } from "./IndexedDBAuth2StamperStorage";
 
 // A valid P-256 uncompressed public key is 65 bytes: 0x04 || 32-byte x || 32-byte y.
 const MOCK_RAW_PUBLIC_KEY = new Uint8Array([0x04, ...Array(64).fill(0x01)]);
@@ -24,6 +25,11 @@ jest.mock("@phantom/base64url", () => ({
   base64urlEncode: jest.fn((data: Uint8Array) => Buffer.from(data).toString("base64url")),
 }));
 
+function makeJwt(payload: Record<string, unknown>): string {
+  const encode = (obj: unknown) => Buffer.from(JSON.stringify(obj)).toString("base64url");
+  return `${encode({ alg: "HS256" })}.${encode({ aud: [], ...payload })}.sig`;
+}
+
 beforeEach(() => {
   Object.defineProperty(globalThis.crypto, "subtle", {
     value: mockSubtle,
@@ -44,7 +50,7 @@ afterEach(() => {
 });
 
 function makeStamper(dbName = `test-db-${Math.random()}`) {
-  return new Auth2Stamper(dbName);
+  return new Auth2Stamper(new IndexedDBAuth2StamperStorage(dbName));
 }
 
 describe("Auth2Stamper", () => {
@@ -102,10 +108,10 @@ describe("Auth2Stamper", () => {
 
     it("returns the same keyInfo on subsequent calls (loads from IndexedDB)", async () => {
       const dbName = `shared-db-${Date.now()}`;
-      const stamper1 = new Auth2Stamper(dbName);
+      const stamper1 = new Auth2Stamper(new IndexedDBAuth2StamperStorage(dbName));
       const info1 = await stamper1.init();
 
-      const stamper2 = new Auth2Stamper(dbName);
+      const stamper2 = new Auth2Stamper(new IndexedDBAuth2StamperStorage(dbName));
       const info2 = await stamper2.init();
 
       // Second call should load from storage, not generate a new key.
@@ -122,12 +128,15 @@ describe("Auth2Stamper", () => {
 
     it("restores the id token from IndexedDB on init()", async () => {
       const dbName = `restore-db-${Date.now()}`;
-      const stamper1 = new Auth2Stamper(dbName);
+      const stamper1 = new Auth2Stamper(new IndexedDBAuth2StamperStorage(dbName));
       await stamper1.init();
-      await stamper1.setTokens({ idToken: "persisted-token", bearerToken: "Bearer persisted-token" });
+      await stamper1.setTokens({
+        accessToken: makeJwt({ sub: "u", ext: { a2t: "persisted-token" } }),
+        idType: "Bearer",
+      });
 
       // A new stamper instance loads from the same DB — simulates app reload.
-      const stamper2 = new Auth2Stamper(dbName);
+      const stamper2 = new Auth2Stamper(new IndexedDBAuth2StamperStorage(dbName));
       await stamper2.init();
 
       // Calling stamp() should succeed without any additional setTokens call.
@@ -140,18 +149,21 @@ describe("Auth2Stamper", () => {
       const stamper = makeStamper();
       await stamper.init();
 
-      await stamper.setTokens({ idToken: "my-token", bearerToken: "Bearer my-token" });
+      await stamper.setTokens({ accessToken: makeJwt({ sub: "u", ext: { a2t: "my-token" } }), idType: "Bearer" });
 
       await expect(stamper.stamp({ type: "OIDC", data: Buffer.from("payload") })).resolves.toBeTruthy();
     });
 
     it("persists the token so a reloaded stamper can stamp without re-authenticating", async () => {
       const dbName = `persist-db-${Date.now()}`;
-      const stamper = new Auth2Stamper(dbName);
+      const stamper = new Auth2Stamper(new IndexedDBAuth2StamperStorage(dbName));
       await stamper.init();
-      await stamper.setTokens({ idToken: "auto-connect-token", bearerToken: "Bearer auto-connect-token" });
+      await stamper.setTokens({
+        accessToken: makeJwt({ sub: "u", ext: { a2t: "auto-connect-token" } }),
+        idType: "Bearer",
+      });
 
-      const reloaded = new Auth2Stamper(dbName);
+      const reloaded = new Auth2Stamper(new IndexedDBAuth2StamperStorage(dbName));
       await reloaded.init();
 
       const stampStr = await reloaded.stamp({ type: "OIDC", data: Buffer.from("payload") });
@@ -163,56 +175,65 @@ describe("Auth2Stamper", () => {
 
     it("persists bearerToken and refreshToken to IndexedDB", async () => {
       const dbName = `persist-tokens-db-${Date.now()}`;
-      const stamper = new Auth2Stamper(dbName);
+      const stamper = new Auth2Stamper(new IndexedDBAuth2StamperStorage(dbName));
       await stamper.init();
+      const accessToken = makeJwt({ sub: "u", ext: { a2t: "a2t-tok" } });
       await stamper.setTokens({
-        idToken: "id-tok",
-        bearerToken: "Bearer access-token",
+        accessToken,
+        idType: "Bearer",
         refreshToken: "refresh-tok",
         expiresInMs: 3_600_000,
       });
 
-      const reloaded = new Auth2Stamper(dbName);
+      const reloaded = new Auth2Stamper(new IndexedDBAuth2StamperStorage(dbName));
       await reloaded.init();
 
-      const tokens = await reloaded.getTokens();
-
-      expect(tokens?.bearerToken).toBe("Bearer access-token");
-      expect(tokens?.refreshToken).toBe("refresh-tok");
+      expect(reloaded.bearerToken).toBe(`Bearer ${accessToken}`);
     });
   });
 
-  describe("getTokens()", () => {
-    it("returns null before setTokens() is called", async () => {
+  describe("bearerToken / auth2Token properties", () => {
+    it("bearerToken returns null before setTokens() is called", async () => {
       const stamper = makeStamper();
       await stamper.init();
 
-      expect(await stamper.getTokens()).toBeNull();
+      expect(stamper.bearerToken).toBeNull();
     });
 
-    it("returns idToken, bearerToken, and refreshToken after setTokens()", async () => {
+    it("bearerToken returns '{idType} {accessToken}' after setTokens()", async () => {
       const stamper = makeStamper();
       await stamper.init();
-      await stamper.setTokens({
-        idToken: "id-tok",
-        bearerToken: "Bearer access-token",
-        refreshToken: "refresh-tok",
-      });
+      const accessToken = makeJwt({ sub: "test-user", ext: { a2t: "a2t-tok" } });
+      await stamper.setTokens({ accessToken, idType: "Bearer", refreshToken: "refresh-tok" });
 
-      const tokens = await stamper.getTokens();
-
-      expect(tokens?.idToken).toBe("id-tok");
-      expect(tokens?.bearerToken).toBe("Bearer access-token");
-      expect(tokens?.refreshToken).toBe("refresh-tok");
+      expect(stamper.bearerToken).toBe(`Bearer ${accessToken}`);
     });
 
-    it("returns null after clear()", async () => {
+    it("auth2Token.sub matches the sub claim in the access token", async () => {
       const stamper = makeStamper();
       await stamper.init();
-      await stamper.setTokens({ idToken: "id-tok", bearerToken: "Bearer access-token" });
+      const accessToken = makeJwt({ sub: "test-user", ext: { a2t: "a2t-tok" } });
+      await stamper.setTokens({ accessToken, idType: "Bearer" });
+
+      expect(stamper.auth2Token?.sub).toBe("test-user");
+    });
+
+    it("bearerToken returns null after clear()", async () => {
+      const stamper = makeStamper();
+      await stamper.init();
+      await stamper.setTokens({ accessToken: makeJwt({ sub: "u", ext: { a2t: "tok" } }), idType: "Bearer" });
       await stamper.clear();
 
-      expect(await stamper.getTokens()).toBeNull();
+      expect(stamper.bearerToken).toBeNull();
+    });
+
+    it("auth2Token returns null after clear()", async () => {
+      const stamper = makeStamper();
+      await stamper.init();
+      await stamper.setTokens({ accessToken: makeJwt({ sub: "u", ext: { a2t: "tok" } }), idType: "Bearer" });
+      await stamper.clear();
+
+      expect(stamper.auth2Token).toBeNull();
     });
   });
 
@@ -226,7 +247,7 @@ describe("Auth2Stamper", () => {
     it("signs the data with ECDSA P-256 / SHA-256", async () => {
       const stamper = makeStamper();
       await stamper.init();
-      await stamper.setTokens({ idToken: "", bearerToken: "Bearer access-token" });
+      await stamper.setTokens({ accessToken: makeJwt({ sub: "u", ext: { a2t: "tok" } }), idType: "Bearer" });
 
       const data = Buffer.from("test message");
       await stamper.stamp({ type: "OIDC", data });
@@ -249,7 +270,7 @@ describe("Auth2Stamper", () => {
       const stamper = makeStamper();
       await stamper.init();
 
-      await stamper.setTokens({ idToken: "test-id-token", bearerToken: "Bearer test-id-token" });
+      await stamper.setTokens({ accessToken: makeJwt({ sub: "u", ext: { a2t: "test-id-token" } }), idType: "Bearer" });
 
       const stampStr = await stamper.stamp({ type: "OIDC", data: Buffer.from("payload") });
       const decoded = JSON.parse(Buffer.from(stampStr, "base64url").toString("utf-8")) as {
@@ -272,7 +293,7 @@ describe("Auth2Stamper", () => {
     it("uses the stored public key (base64url of raw P-256 bytes) in the OIDC stamp", async () => {
       const stamper = makeStamper();
       await stamper.init();
-      await stamper.setTokens({ idToken: "", bearerToken: "Bearer " });
+      await stamper.setTokens({ accessToken: makeJwt({ sub: "u", ext: { a2t: "tok" } }), idType: "Bearer" });
 
       const stampStr = await stamper.stamp({ type: "OIDC", data: Buffer.from("data") });
       const decoded = JSON.parse(Buffer.from(stampStr, "base64url").toString("utf-8")) as {
@@ -286,7 +307,7 @@ describe("Auth2Stamper", () => {
     it("works with empty data", async () => {
       const stamper = makeStamper();
       await stamper.init();
-      await stamper.setTokens({ idToken: "", bearerToken: "Bearer " });
+      await stamper.setTokens({ accessToken: makeJwt({ sub: "u", ext: { a2t: "tok" } }), idType: "Bearer" });
       await expect(stamper.stamp({ type: "OIDC", data: Buffer.from("") })).resolves.toBeTruthy();
     });
   });
@@ -314,7 +335,7 @@ describe("Auth2Stamper", () => {
     it("clears the id token", async () => {
       const stamper = makeStamper();
       await stamper.init();
-      await stamper.setTokens({ idToken: "t", bearerToken: "Bearer t" });
+      await stamper.setTokens({ accessToken: makeJwt({ sub: "u", ext: { a2t: "t" } }), idType: "Bearer" });
 
       await stamper.resetKeyPair();
 
@@ -351,39 +372,27 @@ describe("Auth2Stamper", () => {
   });
 
   describe("rotateKeyPair()", () => {
-    it("delegates to init() — returns a keyInfo", async () => {
-      const dbName = `rotate-db-${Date.now()}`;
-      const stamper = new Auth2Stamper(dbName);
+    it("throws because Auth2 does not use key rotation", async () => {
+      const stamper = makeStamper();
       await stamper.init();
 
-      const info = await stamper.rotateKeyPair();
-
-      expect(info).toBeTruthy();
-      expect(info.keyId).toBeTruthy();
+      await expect(stamper.rotateKeyPair()).rejects.toThrow("not supported");
     });
   });
 
   describe("commitRotation()", () => {
-    it("sets authenticatorId on keyInfo when initialized", async () => {
-      const stamper = makeStamper();
-      await stamper.init();
-      await stamper.commitRotation("auth-id-xyz");
-
-      expect(stamper.getKeyInfo()!.authenticatorId).toBe("auth-id-xyz");
-    });
-
-    it("does not throw when called before init()", async () => {
+    it("throws because Auth2 does not use key rotation", async () => {
       const stamper = makeStamper();
 
-      await expect(stamper.commitRotation("any")).resolves.toBeUndefined();
+      await expect(stamper.commitRotation("any")).rejects.toThrow("not supported");
     });
   });
 
   describe("rollbackRotation()", () => {
-    it("is a no-op and does not throw", async () => {
+    it("throws because Auth2 does not use key rotation", async () => {
       const stamper = makeStamper();
 
-      await expect(stamper.rollbackRotation()).resolves.toBeUndefined();
+      await expect(stamper.rollbackRotation()).rejects.toThrow("not supported");
     });
   });
 });

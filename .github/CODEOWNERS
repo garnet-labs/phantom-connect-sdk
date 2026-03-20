@@ -1,4 +1,4 @@
-# Security
+# Security can use overrides to approve when needed
 
-**/yarn.lock @phantom/security
-**/package.json @phantom/security
+**/yarn.lock @phantom/wallet-platform
+**/package.json @phantom/wallet-platform

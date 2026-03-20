@@ -57,3 +57,29 @@ export interface ToolHandler {
   /** Tool handler function */
   handler: (params: Record<string, unknown>, context: ToolContext) => Promise<unknown>;
 }
+
+/**
+ * Creates a ToolHandler with a typed params interface.
+ *
+ * The MCP framework validates params against inputSchema before calling the handler,
+ * so required fields and their declared types are guaranteed at runtime. Using this
+ * helper removes the need for `typeof` guards and `as` casts inside the handler body.
+ *
+ * The returned object satisfies the untyped `ToolHandler` interface expected by the
+ * tool registry, so no changes are needed in index.ts.
+ *
+ * @example
+ * interface Params { market: string; orderId: number; walletId?: string }
+ * export const myTool = createTool<Params>({ ..., handler: async (params, ctx) => {
+ *   // params.market is string, params.orderId is number — no casts needed
+ * }})
+ */
+export function createTool<P extends object>(definition: {
+  name: string;
+  description: string;
+  inputSchema: ToolInputSchema;
+  annotations?: ToolAnnotations;
+  handler: (params: P, context: ToolContext) => Promise<unknown>;
+}): ToolHandler {
+  return definition as unknown as ToolHandler;
+}

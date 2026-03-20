@@ -69,6 +69,7 @@ See [Prerequisites](#prerequisites) below for detailed setup instructions.
 - **Automatic Authentication**: Handles OAuth flow and session management automatically
 - **Type-Safe**: Full TypeScript support with proper type definitions
 - **Simple Setup**: Minimal configuration - just enable the plugin and use
+- **Perpetuals Trading**: Full Hyperliquid perps support — swap and deposit funds, manage positions, and trade perpetuals
 
 ## Prerequisites
 
@@ -353,6 +354,142 @@ Fetch a swap quote from Phantom's routing engine. Supports same-chain Solana, sa
 ```
 
 **⚠️ Warning:** When `execute: true`, this tool submits transactions immediately and irreversibly.
+
+---
+
+### Perpetuals Tools (Hyperliquid)
+
+The plugin exposes 12 tools for perpetuals trading on Hyperliquid via Phantom's backend. All signing uses the wallet's EVM key (Arbitrum EIP-712).
+
+#### Read-only
+
+##### `get_perp_account`
+
+Returns perp account balance: `accountValue`, `availableBalance`, `availableToTrade`.
+
+**Parameters:** `walletId` (optional), `derivationIndex` (optional, default 0)
+
+##### `get_perp_markets`
+
+Returns all available perpetual markets with current price, funding rate, open interest, 24h volume, and max leverage.
+
+**Parameters:** `walletId` (optional)
+
+##### `get_perp_positions`
+
+Returns all open positions with direction, size, entry price, leverage, unrealized PnL, and liquidation price.
+
+**Parameters:** `walletId` (optional), `derivationIndex` (optional, default 0)
+
+##### `get_perp_orders`
+
+Returns all open orders (limit, take-profit, stop-loss) with order ID, type, price, size, and reduce-only flag.
+
+**Parameters:** `walletId` (optional), `derivationIndex` (optional, default 0)
+
+##### `get_perp_trade_history`
+
+Returns historical trades with price, size, trade value, fee, and closed PnL.
+
+**Parameters:** `walletId` (optional), `derivationIndex` (optional, default 0)
+
+#### Write
+
+##### `deposit_to_hyperliquid`
+
+Swaps tokens to USDC via Phantom's routing engine and transfers the USDC into the Hyperliquid perp account.
+
+**Parameters:**
+
+- `sourceChainId` (string, required): Source chain — `"solana:mainnet"`, `"eip155:42161"`, `"eip155:8453"`, `"eip155:1"`, or `"eip155:137"`
+- `amount` (string, required): Amount to deposit in human-readable units
+- `tokenAddress` (string, optional): ERC-20/SPL token address — omit for native SOL or default USDC per chain
+- `walletId` (string, optional), `derivationIndex` (number, optional, default 0)
+
+**⚠️ Warning:** Submits transactions immediately and irreversibly.
+
+##### `open_perp_position`
+
+Opens a perpetual position. Market orders use 10% slippage (IOC). Limit orders rest on the book (GTC).
+
+**Parameters:**
+
+- `market` (string, required): Market symbol (e.g. `"BTC"`, `"ETH"`, `"SOL"`)
+- `direction` (string, required): `"long"` or `"short"`
+- `sizeUsd` (string, required): Notional position size in USD (e.g. `"500"`)
+- `leverage` (number, required): Leverage multiplier (e.g. `10` for 10x)
+- `orderType` (string, required): `"market"` or `"limit"`
+- `limitPrice` (string, optional): Required for limit orders
+- `reduceOnly` (boolean, optional): Default false
+- `walletId` (string, optional), `derivationIndex` (number, optional, default 0)
+
+**⚠️ Warning:** Submits transactions immediately and irreversibly.
+
+##### `close_perp_position`
+
+Closes an open position using a market IOC order. Defaults to 100% close.
+
+**Parameters:**
+
+- `market` (string, required): Market symbol (e.g. `"BTC"`)
+- `sizePercent` (number, optional): Percentage to close (1–100, default 100)
+- `walletId` (string, optional), `derivationIndex` (number, optional, default 0)
+
+**⚠️ Warning:** Submits transactions immediately and irreversibly.
+
+##### `cancel_perp_order`
+
+Cancels an open order by ID. Use `get_perp_orders` to retrieve order IDs.
+
+**Parameters:**
+
+- `market` (string, required): Market symbol
+- `orderId` (number, required): Order ID from `get_perp_orders`
+- `walletId` (string, optional), `derivationIndex` (number, optional, default 0)
+
+##### `update_perp_leverage`
+
+Updates leverage and margin type for a market. Takes effect on new orders.
+
+**Parameters:**
+
+- `market` (string, required): Market symbol
+- `leverage` (number, required): New leverage multiplier
+- `marginType` (string, required): `"isolated"` or `"cross"`
+- `walletId` (string, optional), `derivationIndex` (number, optional, default 0)
+
+##### `transfer_spot_to_perps`
+
+Moves USDC **within Hypercore** from the spot account to the perp account. Use when USDC is already on Hyperliquid. Does not bridge from external chains.
+
+**Parameters:**
+
+- `amountUsdc` (string, required): Amount of USDC to transfer
+- `walletId` (string, optional), `derivationIndex` (number, optional, default 0)
+
+##### `withdraw_from_perps`
+
+Moves USDC from the perp account back to the Hyperliquid spot account.
+
+**Parameters:**
+
+- `amountUsdc` (string, required): Amount of USDC to withdraw
+- `walletId` (string, optional), `derivationIndex` (number, optional, default 0)
+
+#### Typical Agent Workflow
+
+```text
+1. get_perp_markets          → find market, check price
+2. get_token_balances        → verify USDC balance on source chain
+3. deposit_to_hyperliquid    → swap to USDC and deposit to perp account
+4. get_perp_account          → confirm balance in perp account
+5. open_perp_position        → open long at 10x leverage
+6. get_perp_positions        → monitor position
+7. close_perp_position       → close when done
+8. withdraw_from_perps       → move USDC back to spot
+```
+
+---
 
 ## Network IDs Reference
 

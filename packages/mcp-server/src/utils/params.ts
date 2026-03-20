@@ -1,5 +1,5 @@
 /**
- * Generic parameter parsing helpers for MCP tools.
+ * Generic parameter parsing and assertion helpers for MCP tools.
  */
 
 /**
@@ -55,4 +55,50 @@ export function parseOptionalNonNegativeInteger(value: unknown, fieldName: strin
   }
 
   return parsed;
+}
+
+/**
+ * Throws if value is not a canonical positive decimal string (e.g. "100" or "10.5").
+ * Rejects whitespace, scientific notation, negative values, and zero.
+ */
+export function assertPositiveDecimalString(value: string, name: string): void {
+  if (typeof value !== "string" || value !== value.trim() || !/^\d+(\.\d+)?$/.test(value) || parseFloat(value) <= 0) {
+    throw new Error(`${name} must be a positive number string (e.g. "100" or "10.5")`);
+  }
+}
+
+/**
+ * Throws if value is not a finite positive number (> 0).
+ */
+export function assertPositiveFiniteNumber(value: number, name: string): void {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`${name} must be a positive number`);
+  }
+}
+
+/**
+ * Throws if value is not a finite number >= min.
+ */
+export function assertFiniteNumberAtLeast(value: number, name: string, min: number): void {
+  if (!Number.isFinite(value) || value < min) {
+    throw new Error(`${name} must be a finite number >= ${min}`);
+  }
+}
+
+/**
+ * Throws if value is not a finite number in the closed range [min, max].
+ */
+export function assertFiniteNumberInRange(value: number, name: string, min: number, max: number): void {
+  if (!Number.isFinite(value) || value < min || value > max) {
+    throw new Error(`${name} must be a number between ${min} and ${max}`);
+  }
+}
+
+/**
+ * Throws if value is not a safe integer.
+ */
+export function assertSafeInteger(value: number, name: string): void {
+  if (!Number.isSafeInteger(value)) {
+    throw new Error(`${name} must be a safe integer`);
+  }
 }
