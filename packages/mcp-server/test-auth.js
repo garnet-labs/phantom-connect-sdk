@@ -36,7 +36,8 @@ async function testAuthFlow() {
     console.error("🔧 Running in STAGING mode\n");
     process.env.PHANTOM_AUTH_BASE_URL = "https://staging-auth.phantom.app";
     process.env.PHANTOM_CONNECT_BASE_URL = "https://staging-connect.phantom.app";
-    process.env.PHANTOM_API_BASE_URL = "https://staging-api.phantom.app/v1/wallets";
+    process.env.PHANTOM_WALLETS_API_BASE_URL = "https://staging-api.phantom.app/v1/wallets";
+    process.env.PHANTOM_API_BASE_URL = "http://localhost:3001"; // API PROXY
   } else {
     console.error("🌐 Running in PRODUCTION mode\n");
   }
@@ -56,6 +57,7 @@ async function testAuthFlow() {
     authBaseUrl: process.env.PHANTOM_AUTH_BASE_URL,
     connectBaseUrl: process.env.PHANTOM_CONNECT_BASE_URL,
     apiBaseUrl: process.env.PHANTOM_API_BASE_URL,
+    walletsApiBaseUrl: process.env.PHANTOM_WALLETS_API_BASE_URL,
     callbackPort,
     appId: process.env.PHANTOM_APP_ID || "phantom-mcp-test",
   };
@@ -76,6 +78,7 @@ async function testAuthFlow() {
   console.error(`  Auth URL:    ${config.authBaseUrl || "https://auth.phantom.app"}`);
   console.error(`  Connect URL: ${config.connectBaseUrl || "https://connect.phantom.app"}`);
   console.error(`  API URL:     ${config.apiBaseUrl || "https://api.phantom.app"}`);
+  console.error(`  Wallets API: ${config.walletsApiBaseUrl || "https://api.phantom.app/v1/wallets"}`);
   console.error(`  Callback:    http://localhost:${config.callbackPort}/callback`);
   console.error(`  App ID:      ${config.appId}`);
   console.error(`  Client Mode: ${clientMode}\n`);

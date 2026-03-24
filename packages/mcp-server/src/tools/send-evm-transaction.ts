@@ -13,7 +13,8 @@ import { isEthereumChain } from "@phantom/utils";
 import { parseToKmsTransaction } from "@phantom/parsers";
 import { chainIdToNetworkId } from "@phantom/constants";
 import type { ToolHandler, ToolContext } from "./types.js";
-import { getEthereumAddress, resolveEvmRpcUrl, estimateGas, fetchGasPrice } from "../utils/evm.js";
+import { getEthereumAddress, estimateGas, fetchGasPrice } from "../utils/evm.js";
+import { resolveEvmRpcUrl } from "../utils/rpc.js";
 import { parseChainId, parseOptionalNonNegativeInteger } from "../utils/params.js";
 
 export const sendEvmTransactionTool: ToolHandler = {

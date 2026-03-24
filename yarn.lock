@@ -5538,6 +5538,7 @@ __metadata:
     "@phantom/crypto": "workspace:^"
     "@phantom/parsers": "workspace:^"
     "@phantom/perps-client": "workspace:^"
+    "@phantom/phantom-api-client": "workspace:^"
     "@phantom/server-sdk": "workspace:^"
     "@phantom/utils": "workspace:^"
     "@solana/spl-token": "npm:^0.4.14"
@@ -5612,6 +5613,7 @@ __metadata:
   dependencies:
     "@msgpack/msgpack": "npm:^3.0.0"
     "@phantom/client": "workspace:^"
+    "@phantom/phantom-api-client": "workspace:^"
     "@types/jest": "npm:^29.5.12"
     "@types/node": "npm:^20.11.0"
     axios: "npm:^1.6.7"
@@ -5625,11 +5627,28 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@phantom/phantom-api-client@workspace:^, @phantom/phantom-api-client@workspace:packages/phantom-api-client":
+  version: 0.0.0-use.local
+  resolution: "@phantom/phantom-api-client@workspace:packages/phantom-api-client"
+  dependencies:
+    "@types/jest": "npm:^29.5.12"
+    "@types/node": "npm:^20.11.0"
+    eslint: "npm:8.53.0"
+    jest: "npm:^29.7.0"
+    prettier: "npm:^3.5.2"
+    rimraf: "npm:^5.0.5"
+    ts-jest: "npm:^29.1.2"
+    tsup: "npm:^7.2.0"
+    typescript: "npm:^5.0.4"
+  languageName: unknown
+  linkType: soft
+
 "@phantom/phantom-openclaw-plugin@workspace:packages/phantom-openclaw-plugin":
   version: 0.0.0-use.local
   resolution: "@phantom/phantom-openclaw-plugin@workspace:packages/phantom-openclaw-plugin"
   dependencies:
     "@phantom/mcp-server": "workspace:^"
+    "@phantom/phantom-api-client": "workspace:^"
     "@sinclair/typebox": "npm:^0.32.0"
     "@types/node": "npm:^20.11.0"
     eslint: "npm:8.53.0"

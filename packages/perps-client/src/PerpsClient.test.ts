@@ -53,10 +53,16 @@ const MOCK_POSITION = {
 
 const OK_RESPONSE = { status: "ok", response: { type: "order", data: { statuses: [] } } };
 
+const mockApiClient = {
+  get: jest.fn(),
+  post: jest.fn(),
+};
+
 function makeClient(): PerpsClient {
   return new PerpsClient({
     evmAddress: "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
     signTypedData: () => Promise.resolve("0x" + "a".repeat(64) + "b".repeat(64) + "1b"),
+    apiClient: mockApiClient,
   });
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "@phantom/perps-client",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Hyperliquid perpetuals client for Phantom Wallet",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -32,6 +32,7 @@
   "dependencies": {
     "@msgpack/msgpack": "^3.0.0",
     "@phantom/client": "workspace:^",
+    "@phantom/phantom-api-client": "workspace:^",
     "axios": "^1.6.7",
     "js-sha3": "^0.9.3"
   }

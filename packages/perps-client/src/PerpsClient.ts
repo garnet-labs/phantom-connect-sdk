@@ -26,6 +26,7 @@ import type {
 } from "./types.js";
 import { noopLogger } from "./types.js";
 import { PerpsApi } from "./api.js";
+import type { ApiClient } from "./api.js";
 import {
   buildExchangeActionTypedData,
   buildUsdClassTransferTypedData,
@@ -35,7 +36,7 @@ import {
   formatSize,
   resolveLimitPrice,
 } from "./actions.js";
-import { DEFAULT_API_BASE_URL, HYPERCORE_MAINNET_CHAIN_ID, MARKET_ORDER_SLIPPAGE } from "./constants.js";
+import { HYPERCORE_MAINNET_CHAIN_ID, MARKET_ORDER_SLIPPAGE } from "./constants.js";
 import { assertPositiveDecimalString } from "./validate.js";
 
 export interface PerpsClientOptions {
@@ -46,10 +47,10 @@ export interface PerpsClientOptions {
    * In the MCP server this is bound to PhantomClient.ethereumSignTypedData().
    */
   signTypedData: (typedData: Eip712TypedData) => Promise<string>;
-  apiBaseUrl?: string;
-  appId?: string;
   /** Optional logger — if provided, all API calls and errors are logged */
   logger?: PerpsLogger;
+  /** Shared API client that routes all requests through the proxy */
+  apiClient: ApiClient;
 }
 
 export class PerpsClient {
@@ -64,9 +65,8 @@ export class PerpsClient {
     this.logger = opts.logger ?? noopLogger;
     this.logger.debug(`PerpsClient initialized evmAddress=${this.evmAddress} taker=${this.getUserCaip19()}`);
     this.api = new PerpsApi({
-      baseUrl: opts.apiBaseUrl ?? DEFAULT_API_BASE_URL,
-      appId: opts.appId,
       logger: this.logger,
+      apiClient: opts.apiClient,
     });
   }
 

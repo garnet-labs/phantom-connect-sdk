@@ -36,7 +36,13 @@ import {
   ListToolsRequestSchema,
   type CallToolRequest,
 } from "@modelcontextprotocol/sdk/types.js";
+import { AddressType, type NetworkId } from "@phantom/client";
+import { PhantomApiClient, PaymentRequiredError, RateLimitError } from "@phantom/phantom-api-client";
+import { base64urlEncode } from "@phantom/base64url";
+import { ANALYTICS_HEADERS } from "@phantom/constants";
 import { SessionManager } from "./session/manager.js";
+import * as packageJson from "../package.json";
+import { normalizeNetworkId } from "./utils/network.js";
 import { tools, getTool } from "./tools/index.js";
 import { Logger } from "./utils/logger.js";
 
@@ -60,7 +66,7 @@ export interface PhantomMCPServerOptions {
   session?: {
     authBaseUrl?: string;
     connectBaseUrl?: string;
-    apiBaseUrl?: string;
+    walletsApiBaseUrl?: string;
     callbackPort?: number;
     appId?: string;
     sessionDir?: string;
@@ -92,6 +98,7 @@ export class PhantomMCPServer {
   private readonly server: Server;
   private readonly sessionManager: SessionManager;
   private readonly logger: Logger;
+  private readonly apiClient: PhantomApiClient;
   /**
    * Resolves when the startup initialization attempt finishes (success or failure).
    * Tool call handlers await this so they don't race with the OAuth browser flow.
@@ -106,6 +113,13 @@ export class PhantomMCPServer {
    */
   constructor(options: PhantomMCPServerOptions = {}) {
     this.logger = new Logger("PhantomMCPServer");
+
+    // Initialize shared API client — points at api.phantom.app by default.
+    // Override with PHANTOM_API_BASE_URL to point at a different proxy or local server.
+    this.apiClient = new PhantomApiClient({
+      baseUrl: process.env.PHANTOM_API_BASE_URL ?? "https://api.phantom.app",
+      logger: this.logger.child("api-client"),
+    });
 
     // Initialize MCP Server
     // The server name and instructions are surfaced to agents during the MCP handshake,
@@ -206,6 +220,12 @@ export class PhantomMCPServer {
           try {
             await this.sessionManager.resetSession();
             const session = this.sessionManager.getSession();
+            try {
+              await this.wirePaymentHandler();
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              this.logger.error(`Failed to wire payment handler after login: ${msg}`);
+            }
             return {
               content: [
                 {
@@ -242,6 +262,7 @@ export class PhantomMCPServer {
           client,
           session,
           logger: this.logger.child(toolName),
+          apiClient: this.apiClient,
         };
 
         // Step 4: Execute tool handler
@@ -273,6 +294,59 @@ export class PhantomMCPServer {
                     error:
                       "Session expired. Re-authentication was triggered — please complete the Phantom Connect browser sign-in and retry this request.",
                     code: "AUTH_EXPIRED",
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        // Payment required: auto-pay failed (insufficient CASH, signing error, etc.)
+        // Return a structured response so the agent knows exactly what happened and what to do.
+        if (error instanceof PaymentRequiredError) {
+          this.logger.warn(`Payment required on tool ${toolName}: auto-pay failed — ${error.message}`);
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(
+                  {
+                    error: "API_PAYMENT_REQUIRED",
+                    message:
+                      `Daily API limit reached. Call pay_api_access with the preparedTx below to pay ` +
+                      `${error.payment.amount} ${error.payment.token} and unlock access, then retry ${toolName}.`,
+                    preparedTx: error.payment.preparedTx,
+                    payment: {
+                      amount: error.payment.amount,
+                      token: error.payment.token,
+                      network: error.payment.network,
+                      description: error.payment.description,
+                    },
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        // Rate limited: tell the agent to back off
+        if (error instanceof RateLimitError) {
+          this.logger.warn(`Rate limited on tool ${toolName}: retry in ${error.retryAfterMs}ms`);
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(
+                  {
+                    error: "RATE_LIMITED",
+                    message: `Too many requests. Wait ${Math.ceil(error.retryAfterMs / 1000)} seconds before retrying.`,
+                    retryAfterMs: error.retryAfterMs,
                   },
                   null,
                   2,
@@ -352,5 +426,71 @@ export class PhantomMCPServer {
       });
 
     await this.initPromise;
+
+    // Wire payment handler after init completes so any failure here is clearly visible
+    // and not silently swallowed by the session-init catch block above.
+    try {
+      await this.wirePaymentHandler();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Failed to wire payment handler: ${msg} — API payment auto-pay will be disabled`);
+    }
+  }
+
+  /**
+   * Wires a payment handler into the shared apiClient so any 402 from the proxy
+   * is automatically paid and the original request retried — no tool changes needed.
+   * Called after every session init/reset so the handler always uses the current client.
+   */
+  private async wirePaymentHandler(): Promise<void> {
+    // getClient/getSession throw if no session — don't wire if unauthenticated
+    let client: ReturnType<typeof this.sessionManager.getClient>;
+    let session: ReturnType<typeof this.sessionManager.getSession>;
+    try {
+      client = this.sessionManager.getClient();
+      session = this.sessionManager.getSession();
+    } catch {
+      this.logger.warn("wirePaymentHandler: no active session — skipping (will retry after login)");
+      return;
+    }
+    this.logger.info("Wiring payment handler into apiClient");
+
+    // Set static headers — wallet address and app id are known after session init
+    const appId = process.env.PHANTOM_APP_ID ?? process.env.PHANTOM_CLIENT_ID;
+    const addresses = await client.getWalletAddresses(session.walletId);
+    const solanaAddress = addresses.find(a => a.addressType === AddressType.solana)?.address;
+    const staticHeaders: Record<string, string> = {
+      [ANALYTICS_HEADERS.PLATFORM]: "ext-sdk",
+      [ANALYTICS_HEADERS.CLIENT]: "mcp",
+      [ANALYTICS_HEADERS.SDK_VERSION]: process.env.PHANTOM_VERSION ?? packageJson.version ?? "unknown",
+    };
+    if (appId) {
+      staticHeaders["x-api-key"] = appId;
+      staticHeaders["X-App-Id"] = appId;
+    }
+    if (solanaAddress) {
+      staticHeaders["X-Wallet-Address"] = solanaAddress;
+    }
+    this.apiClient.setHeaders(staticHeaders);
+
+    this.apiClient.setPaymentHandler(async payment => {
+      this.logger.info(`Paying ${payment.amount} ${payment.token} to unlock API access`);
+
+      // Re-resolve Solana address in case session was refreshed
+      const paymentAddresses = await client.getWalletAddresses(session.walletId);
+      const solanaAddress = paymentAddresses.find(a => a.addressType === AddressType.solana)?.address;
+      if (!solanaAddress) throw new Error("No Solana address found for payment");
+
+      const txBytes = Buffer.from(payment.preparedTx, "base64");
+      const result = await client.signAndSendTransaction({
+        walletId: session.walletId,
+        transaction: base64urlEncode(txBytes),
+        networkId: normalizeNetworkId("solana:mainnet") as NetworkId,
+        account: solanaAddress,
+      });
+      if (!result.hash) throw new Error("Payment tx submitted but no signature returned");
+      this.logger.info(`Payment signature: ${result.hash}`);
+      return result.hash;
+    });
   }
 }

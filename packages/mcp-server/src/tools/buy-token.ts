@@ -3,164 +3,17 @@
  * Supports same-chain Solana, same-chain EVM, and cross-chain swaps.
  */
 
-import type { NetworkId } from "@phantom/client";
 import { isSolanaChain } from "@phantom/utils";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { getMint } from "@solana/spl-token";
-import bs58 from "bs58";
-import { base64urlEncode } from "@phantom/base64url";
-import { parseToKmsTransaction } from "@phantom/parsers";
 import type { ToolHandler, ToolContext } from "./types.js";
-import type {
-  SolanaQuote,
-  EvmSameChainQuote,
-  CrossChainQuote,
-  SolanaOriginCrossChainStep,
-  EvmOriginCrossChainStep,
-} from "../utils/quotes.js";
-import { normalizeNetworkId, normalizeSwapperChainId } from "../utils/network.js";
+import { normalizeSwapperChainId } from "../utils/network.js";
 import { getSolanaAddress } from "../utils/solana.js";
-import { getEthereumAddress, resolveEvmRpcUrl, fetchNonce, fetchGasPrice, estimateGas } from "../utils/evm.js";
-import { getExplorerTxUrl } from "../utils/explorers.js";
+import { getEthereumAddress } from "../utils/evm.js";
 import { parseBaseUnitAmount, parseUiAmount, requirePositiveAmount } from "../utils/amount.js";
 import { parseOptionalNonNegativeInteger } from "../utils/params.js";
-
-const DEFAULT_QUOTES_API_URL = "https://api.phantom.app/swap/v2/quotes";
-const DEFAULT_PHANTOM_VERSION = "mcp-server";
-
-const DEFAULT_SOLANA_RPC_URLS: Record<string, string> = {
-  "solana:101": "https://api.mainnet-beta.solana.com",
-  "solana:103": "https://api.devnet.solana.com",
-  "solana:102": "https://api.testnet.solana.com",
-};
-
-function validateHttpsUrl(url: string, context: string): void {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw new Error(`${context} URL is not valid: ${url}`);
-  }
-  if (parsed.protocol !== "https:") {
-    throw new Error(`${context} URL must use HTTPS protocol, got: ${parsed.protocol}`);
-  }
-  if (!parsed.hostname) {
-    throw new Error(`${context} URL missing hostname: ${url}`);
-  }
-}
-
-function resolveQuotesApiUrl(override?: string): string {
-  let url: string;
-  if (override && typeof override === "string") {
-    url = override;
-  } else if (process.env.PHANTOM_QUOTES_API_URL) {
-    url = process.env.PHANTOM_QUOTES_API_URL;
-  } else {
-    url = DEFAULT_QUOTES_API_URL;
-  }
-  validateHttpsUrl(url, "Quotes API");
-  return url;
-}
-
-function resolveSolanaRpcUrl(chainId: string, override?: string): string {
-  let url: string;
-  if (override && typeof override === "string") {
-    url = override;
-  } else {
-    const defaultUrl = DEFAULT_SOLANA_RPC_URLS[chainId];
-    if (!defaultUrl) {
-      throw new Error(
-        `rpcUrl is required for chainId "${chainId}". Supported defaults: ${Object.keys(DEFAULT_SOLANA_RPC_URLS).join(", ")}`,
-      );
-    }
-    url = defaultUrl;
-  }
-  validateHttpsUrl(url, "Solana RPC");
-  return url;
-}
-
-function decodeTransactionData(transactionData: string, base64Encoded: boolean | undefined): Uint8Array {
-  if (base64Encoded) {
-    const bytes = Buffer.from(transactionData, "base64");
-    if (!bytes.length) throw new Error("Failed to decode base64 transaction data");
-    return bytes;
-  }
-  try {
-    return bs58.decode(transactionData);
-  } catch (error) {
-    const bytes = Buffer.from(transactionData, "base64");
-    if (!bytes.length) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      throw new Error(`Failed to decode transaction data: ${errorMessage}`);
-    }
-    return bytes;
-  }
-}
-
-/**
- * Validates a token address for the given chain.
- * Solana: must be a valid base58 PublicKey.
- * EVM: must be a 0x-prefixed hex address.
- */
-function validateTokenAddress(address: string, chainId: string, paramName: string): void {
-  if (isSolanaChain(chainId)) {
-    try {
-      new PublicKey(address);
-    } catch {
-      throw new Error(`${paramName} must be a valid Solana address`);
-    }
-  } else if (chainId.startsWith("eip155:")) {
-    if (!/^0x[0-9a-fA-F]{40}$/.test(address)) {
-      throw new Error(`${paramName} must be a valid EVM address (0x-prefixed, 40 hex chars)`);
-    }
-  }
-}
-
-/**
- * Slip44 identifier for the native token of each EVM chain as used by the Phantom quotes API.
- * These match the nativeToken component of the CAIP-19 identifiers returned by the Phantom
- * portfolio API (e.g. eip155:8453/nativeToken:8453), which may differ from the SLIP-44 registry.
- *
- * Values confirmed from Phantom portfolio API caip19 fields:
- *   eip155:1     → nativeToken:60   (ETH, SLIP-44 registered)
- *   eip155:8453  → nativeToken:8453 (Base ETH, uses chain ID)
- *   eip155:42161 → nativeToken:9001 (Arbitrum ETH)
- *   eip155:137   → nativeToken:966  (MATIC, SLIP-44 registered)
- */
-const EVM_NATIVE_SLIP44: Record<string, string> = {
-  "eip155:1": "60", // ETH — Ethereum mainnet
-  "eip155:11155111": "60", // ETH — Sepolia
-  "eip155:8453": "8453", // ETH — Base
-  "eip155:84532": "84532", // ETH — Base Sepolia
-  "eip155:42161": "9001", // ETH — Arbitrum One
-  "eip155:421614": "9001", // ETH — Arbitrum Sepolia
-  "eip155:137": "966", // MATIC — Polygon
-  "eip155:80002": "966", // MATIC — Polygon Amoy
-  "eip155:143": "143", // ETH — Monad mainnet
-  "eip155:10143": "10143", // ETH — Monad testnet
-};
-
-/**
- * Builds the token object for the Phantom quotes API.
- * Native tokens require slip44; EVM chains each have a specific coin type.
- */
-function buildTokenObject(chainId: string, mint: string | undefined, isNative: boolean): Record<string, unknown> {
-  if (isNative) {
-    if (isSolanaChain(chainId)) {
-      return { chainId, resourceType: "nativeToken", slip44: "501" };
-    }
-    const slip44 = EVM_NATIVE_SLIP44[chainId];
-    if (!slip44) {
-      throw new Error(
-        `Native token slip44 not configured for chain ${chainId}. Supported EVM chains: ${Object.keys(EVM_NATIVE_SLIP44).join(", ")}`,
-      );
-    }
-    return { chainId, resourceType: "nativeToken", slip44 };
-  }
-  // Backend requires lowercase EVM addresses
-  const normalizedMint = chainId.startsWith("eip155:") && mint ? mint.toLowerCase() : mint;
-  return { chainId, resourceType: "address", address: normalizedMint };
-}
+import { validateTokenAddress, buildTokenObject, fetchSwapQuote, executeSwap } from "../utils/swap.js";
+import { resolveSolanaRpcUrl } from "../utils/rpc.js";
 
 export const buyTokenTool: ToolHandler = {
   name: "buy_token",
@@ -271,11 +124,6 @@ export const buyTokenTool: ToolHandler = {
       rpcUrl: {
         type: "string",
         description: "Optional Solana RPC URL (for mint decimals lookup when amountUnit is 'ui' on Solana)",
-      },
-      quoteApiUrl: {
-        type: "string",
-        description:
-          "Optional Phantom-compatible quotes API URL override. Do not use Jupiter or other third-party endpoints.",
       },
       derivationIndex: {
         type: "number",
@@ -420,25 +268,13 @@ export const buyTokenTool: ToolHandler = {
 
     requirePositiveAmount(amountBaseUnits);
 
-    // --- Build quote request body ---
-    const quoteApiUrl = resolveQuotesApiUrl(typeof params.quoteApiUrl === "string" ? params.quoteApiUrl : undefined);
-
+    // --- Build quote request ---
     const buyToken = buildTokenObject(buySwapperChainId, buyTokenMint, buyTokenIsNative);
     const sellToken = buildTokenObject(sellSwapperChainId, sellTokenMint, sellTokenIsNative);
 
-    const body: Record<string, unknown> = {
-      taker: { chainId: sellSwapperChainId, resourceType: "address", address: taker },
-      buyToken,
-      sellToken,
-    };
-
-    if (exactOut) {
-      body.buyAmount = amountBaseUnits.toString();
-    } else {
-      body.sellAmount = amountBaseUnits.toString();
-    }
-
-    // Cross-chain: add takerDestination and chainAddresses
+    // Cross-chain: resolve destination address
+    let takerDestination: { chainId: string; resourceType: string; address: string } | undefined;
+    let chainAddresses: Record<string, string> | undefined;
     if (isCrossChain) {
       // Hypercore uses EVM-style addresses (same key as Arbitrum/Ethereum)
       const destinationAddress =
@@ -446,12 +282,12 @@ export const buyTokenTool: ToolHandler = {
           ? await getEthereumAddress(context, walletId, derivationIndex)
           : await getSolanaAddress(context, walletId, derivationIndex);
 
-      body.takerDestination = {
+      takerDestination = {
         chainId: buySwapperChainId,
         resourceType: "address",
         address: destinationAddress,
       };
-      body.chainAddresses = {
+      chainAddresses = {
         [sellSwapperChainId]: taker,
         [buySwapperChainId]: destinationAddress,
       };
@@ -460,249 +296,55 @@ export const buyTokenTool: ToolHandler = {
     if (typeof params.slippageTolerance === "number") {
       if (!Number.isFinite(params.slippageTolerance) || params.slippageTolerance < 0 || params.slippageTolerance > 100)
         throw new Error("slippageTolerance must be a number between 0 and 100");
-      body.slippageTolerance = params.slippageTolerance;
-    }
-    if (typeof params.exactOut === "boolean") body.exactOut = exactOut;
-    body.autoSlippage = typeof params.autoSlippage === "boolean" ? params.autoSlippage : true;
-    if (typeof params.base64EncodedTx === "boolean") body.base64EncodedTx = params.base64EncodedTx;
-
-    const quoteApiOrigin = new URL(quoteApiUrl).origin;
-    logger.info(
-      `Requesting ${isCrossChain ? "cross-chain" : isSellSolana ? "Solana" : "EVM"} quote from ${quoteApiOrigin} (${sellSwapperChainId} → ${buySwapperChainId})`,
-    );
-
-    const appId =
-      (typeof session.appId === "string" && session.appId) ||
-      process.env.PHANTOM_APP_ID ||
-      process.env.PHANTOM_CLIENT_ID;
-    if (!appId) logger.warn("Quote request missing app id; sending request without x-api-key header");
-
-    const quoteHeaders: Record<string, string> = {
-      "Content-Type": "application/json",
-      "x-phantom-platform": "ext-sdk",
-      "x-phantom-client": "mcp",
-      "X-Phantom-Version": process.env.PHANTOM_VERSION ?? DEFAULT_PHANTOM_VERSION,
-    };
-    if (appId) {
-      quoteHeaders["x-api-key"] = appId;
-      quoteHeaders["X-App-Id"] = appId;
     }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-    let response: Response;
-    try {
-      response = await fetch(quoteApiUrl, {
-        method: "POST",
-        headers: quoteHeaders,
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-    } catch (error) {
-      if (error instanceof Error && error.name === "AbortError")
-        throw new Error("Quote API request timed out after 10 seconds");
-      throw error;
-    } finally {
-      clearTimeout(timeoutId);
-    }
-
-    const responseText = await response.text();
-    let responseJson: unknown;
-    try {
-      responseJson = responseText ? JSON.parse(responseText) : null;
-    } catch (parseError) {
-      logger.debug(`Failed to parse response as JSON: ${parseError}`);
-      responseJson = responseText;
-    }
-
-    if (!response.ok) {
-      const message = typeof responseJson === "string" ? responseJson : JSON.stringify(responseJson);
-      if (response.status === 405) {
-        throw new Error(`Quote API error (405): ${message}. Endpoint must accept POST with Phantom quote schema.`);
-      }
-      throw new Error(`Quote API error (${response.status}): ${message}`);
-    }
+    const { quoteRequest, quoteResponse } = await fetchSwapQuote({
+      sellChainId: sellSwapperChainId,
+      buyChainId: buySwapperChainId,
+      sellToken,
+      buyToken,
+      taker,
+      sellAmount: exactOut ? undefined : amountBaseUnits.toString(),
+      buyAmount: exactOut ? amountBaseUnits.toString() : undefined,
+      exactOut,
+      slippageTolerance: typeof params.slippageTolerance === "number" ? params.slippageTolerance : undefined,
+      autoSlippage: typeof params.autoSlippage === "boolean" ? params.autoSlippage : undefined,
+      base64EncodedTx: typeof params.base64EncodedTx === "boolean" ? params.base64EncodedTx : undefined,
+      apiClient: context.apiClient,
+      logger,
+      takerDestination,
+      chainAddresses,
+    });
 
     const execute = typeof params.execute === "boolean" ? params.execute : false;
 
     if (!execute) {
       logger.info("Returning quote only (execute: false)");
-      logger.debug(`[TX_DEBUG] allQuotes=${JSON.stringify((responseJson as Record<string, unknown>)?.quotes)}`);
-      return { quoteRequest: body, quoteResponse: responseJson };
+      return { quoteRequest, quoteResponse };
     }
 
     logger.info(`Executing ${isCrossChain ? "cross-chain" : ""} swap transaction (execute: true)`);
 
-    if (
-      typeof responseJson !== "object" ||
-      responseJson === null ||
-      !Array.isArray((responseJson as Record<string, unknown>).quotes)
-    ) {
-      throw new Error(
-        `Quote response has unexpected format: expected object with quotes array, got ${typeof responseJson}`,
-      );
-    }
-
-    const quotes = (responseJson as { quotes: unknown[] }).quotes;
-    if (quotes.length === 0) throw new Error("Quote response contains empty quotes array - no swaps available");
-
-    logger.debug(
-      `[TX_DEBUG] sellChain=${sellSwapperChainId} buyChain=${buySwapperChainId} isCrossChain=${isCrossChain} taker=${taker} walletId=${walletId}`,
-    );
-    logger.debug(`[TX_DEBUG] allQuotes=${JSON.stringify(quotes)}`);
-
-    logger.info("Signing and sending swap transaction");
-
-    let signResult: { hash?: string; rawTransaction: string };
-
-    if (isCrossChain) {
-      const crossChainQuote = quotes[0] as CrossChainQuote;
-      const step = crossChainQuote.steps?.[0];
-      if (!step?.transactionData) {
-        throw new Error(
-          `Cross-chain quote missing transactionData in steps[0]. Quote: ${JSON.stringify(crossChainQuote)}`,
-        );
-      }
-
-      if (isSellSolana) {
-        // Solana → EVM: sign the Solana initiation tx from steps[0]
-        const solanaStep = step as SolanaOriginCrossChainStep;
-        const decoded = decodeTransactionData(
-          solanaStep.transactionData,
-          params.base64EncodedTx as boolean | undefined,
-        );
-        const encoded = base64urlEncode(decoded);
-        logger.debug(`[TX_DEBUG] decodedByteLength=${decoded.length} base64urlLength=${encoded.length}`);
-        signResult = await context.client.signAndSendTransaction({
-          walletId,
-          transaction: encoded,
-          networkId: normalizeNetworkId(rawSellChain) as NetworkId,
-          derivationIndex,
-          account: taker,
-        });
-      } else {
-        // EVM → Solana: build and sign the EVM initiation tx from steps[0]
-        const evmStep = step as EvmOriginCrossChainStep;
-        if (!evmStep.exchangeAddress) {
-          throw new Error(`Cross-chain EVM step missing exchangeAddress. Step: ${JSON.stringify(evmStep)}`);
-        }
-        const chainId = parseInt(sellSwapperChainId.split(":")[1], 10);
-        const rpcUrl = resolveEvmRpcUrl(sellSwapperChainId);
-        const [nonce, gasPrice] = await Promise.all([fetchNonce(rpcUrl, taker), fetchGasPrice(rpcUrl)]);
-        logger.info(
-          `[TX_DEBUG] fetched nonce=${nonce} gasPrice=${gasPrice} for taker=${taker} on ${sellSwapperChainId}`,
-        );
-        const txValue = "0x" + BigInt(evmStep.value ?? "0").toString(16);
-        const baseTx: Record<string, unknown> = {
-          from: taker,
-          to: evmStep.exchangeAddress,
-          value: txValue,
-          data: evmStep.transactionData,
-          chainId,
-          nonce,
-          gasPrice,
-        };
-        const txGas = evmStep.gasCosts?.[0];
-        if (txGas != null && txGas > 0) {
-          baseTx.gas = "0x" + txGas.toString(16);
-        } else {
-          baseTx.gas = await estimateGas(rpcUrl, {
-            from: taker,
-            to: evmStep.exchangeAddress,
-            value: txValue,
-            data: evmStep.transactionData,
-          });
-          logger.info(`[TX_DEBUG] no gasCosts in step, estimated gas=${baseTx.gas}`);
-        }
-        const { parsed: rlpHex } = await parseToKmsTransaction(baseTx, sellSwapperChainId as NetworkId);
-        if (!rlpHex) throw new Error("Failed to RLP-encode EVM cross-chain swap transaction");
-        signResult = await context.client.signAndSendTransaction({
-          walletId,
-          transaction: rlpHex,
-          networkId: sellSwapperChainId as NetworkId,
-          derivationIndex,
-          account: taker,
-        });
-      }
-    } else if (isSellSolana) {
-      // Solana same-chain swap
-      const solanaQuote = quotes[0] as SolanaQuote;
-      const rawTxData = solanaQuote.transactionData;
-      const txData = Array.isArray(rawTxData) ? rawTxData[0] : rawTxData;
-      if (!txData) {
-        throw new Error(`Solana quote missing transactionData. Quote: ${JSON.stringify(solanaQuote)}`);
-      }
-      const decoded = decodeTransactionData(txData, params.base64EncodedTx as boolean | undefined);
-      const encoded = base64urlEncode(decoded);
-      logger.debug(`[TX_DEBUG] decodedByteLength=${decoded.length} base64urlLength=${encoded.length}`);
-      signResult = await context.client.signAndSendTransaction({
-        walletId,
-        transaction: encoded,
-        networkId: normalizeNetworkId(rawSellChain) as NetworkId,
-        derivationIndex,
-        account: taker,
-      });
-    } else {
-      // EVM same-chain swap
-      const evmQuote = quotes[0] as EvmSameChainQuote;
-      const rawTxData = evmQuote.transactionData;
-      const txData = Array.isArray(rawTxData) ? rawTxData[0] : rawTxData;
-      if (!txData) {
-        throw new Error(`EVM quote missing transactionData. Quote: ${JSON.stringify(evmQuote)}`);
-      }
-      if (!evmQuote.exchangeAddress) {
-        throw new Error(`EVM quote missing exchangeAddress. Quote: ${JSON.stringify(evmQuote)}`);
-      }
-      const chainId = parseInt(sellSwapperChainId.split(":")[1], 10);
-      const rpcUrl = resolveEvmRpcUrl(sellSwapperChainId);
-      const [nonce, gasPrice] = await Promise.all([fetchNonce(rpcUrl, taker), fetchGasPrice(rpcUrl)]);
-      logger.info(`[TX_DEBUG] fetched nonce=${nonce} gasPrice=${gasPrice} for taker=${taker} on ${sellSwapperChainId}`);
-      const txValue = "0x" + BigInt(evmQuote.value ?? "0").toString(16);
-      const baseTx: Record<string, unknown> = {
-        from: taker,
-        to: evmQuote.exchangeAddress,
-        value: txValue,
-        data: txData,
-        chainId,
-        nonce,
-        gasPrice,
-      };
-      if (evmQuote.gas != null && evmQuote.gas > 0) {
-        baseTx.gas = "0x" + evmQuote.gas.toString(16);
-      } else {
-        baseTx.gas = await estimateGas(rpcUrl, {
-          from: taker,
-          to: evmQuote.exchangeAddress,
-          value: txValue,
-          data: txData,
-        });
-        logger.info(`[TX_DEBUG] no gas in quote, estimated gas=${baseTx.gas}`);
-      }
-      const { parsed: rlpHex } = await parseToKmsTransaction(baseTx, sellSwapperChainId as NetworkId);
-      if (!rlpHex) throw new Error("Failed to RLP-encode EVM swap transaction");
-      signResult = await context.client.signAndSendTransaction({
-        walletId,
-        transaction: rlpHex,
-        networkId: sellSwapperChainId as NetworkId,
-        derivationIndex,
-        account: taker,
-      });
-    }
-
-    const txHash = signResult.hash ?? null;
-    logger.info(`Swap executed: ${txHash ?? "no hash returned"}`);
-
-    // For cross-chain swaps the initiation tx is on the sell chain; the buy side completes automatically.
-    const explorerUrl = txHash ? getExplorerTxUrl(sellSwapperChainId, txHash) : undefined;
+    const swapResult = await executeSwap({
+      quoteResponse,
+      sellChainId: sellSwapperChainId,
+      buyChainId: buySwapperChainId,
+      rawSellChain,
+      taker,
+      walletId,
+      derivationIndex,
+      base64EncodedTx: typeof params.base64EncodedTx === "boolean" ? params.base64EncodedTx : undefined,
+      client: context.client,
+      logger,
+    });
 
     return {
-      quoteRequest: body,
-      quoteResponse: responseJson,
+      quoteRequest,
+      quoteResponse,
       execution: {
-        signature: txHash,
-        rawTransaction: signResult.rawTransaction,
-        explorerUrl: explorerUrl ?? null,
+        signature: swapResult.signature,
+        rawTransaction: swapResult.rawTransaction,
+        explorerUrl: swapResult.explorerUrl,
       },
     };
   },

@@ -105,7 +105,7 @@ describe("SessionManager", () => {
     it("should use environment variables for URLs", () => {
       process.env.PHANTOM_AUTH_BASE_URL = "https://env-auth.example.com";
       process.env.PHANTOM_CONNECT_BASE_URL = "https://env-connect.example.com";
-      process.env.PHANTOM_API_BASE_URL = "https://env-api.example.com";
+      process.env.PHANTOM_WALLETS_API_BASE_URL = "https://env-api.example.com";
 
       const manager = new SessionManager();
       expect(manager).toBeDefined();
@@ -113,7 +113,7 @@ describe("SessionManager", () => {
       // Clean up
       delete process.env.PHANTOM_AUTH_BASE_URL;
       delete process.env.PHANTOM_CONNECT_BASE_URL;
-      delete process.env.PHANTOM_API_BASE_URL;
+      delete process.env.PHANTOM_WALLETS_API_BASE_URL;
     });
   });
 
@@ -326,7 +326,7 @@ describe("SessionManager", () => {
       mockStorage.isExpired.mockReturnValue(false);
 
       const manager = new SessionManager({
-        apiBaseUrl: "https://custom-api.example.com",
+        walletsApiBaseUrl: "https://custom-api.example.com",
       });
       await manager.initialize();
 

@@ -2,6 +2,8 @@
  * Utilities for building Phantom Portfolio API requests.
  */
 
+import type { ToolContext } from "../tools/types.js";
+
 /**
  * Maps agent-friendly network names to wallet address type and CAIP-19 chain prefix.
  * EVM chains (ethereum, base, polygon, arbitrum) share the same wallet address.
@@ -55,4 +57,56 @@ export function buildCaip19Addresses(networks: string[], addressByType: Record<s
   }
 
   return caip19Addresses;
+}
+
+// --- Portfolio API types ---
+
+export interface PortfolioWalletBalance {
+  address: string;
+  quantity: number;
+  quantityString: string;
+}
+
+export interface PortfolioItem {
+  name: string;
+  symbol: string;
+  decimals: number;
+  caip19: string;
+  totalQuantity: number;
+  totalQuantityString: string;
+  spamStatus: string;
+  logoUri?: string;
+  price?: { price: number; priceChange24h: number };
+  queriedWalletBalances: PortfolioWalletBalance[];
+}
+
+export interface PortfolioResponse {
+  items: PortfolioItem[];
+}
+
+/**
+ * Fetches fungible token balances from the Phantom Portfolio API.
+ * Shared by get_token_balances and portfolio_rebalance tools.
+ */
+export async function fetchPortfolioBalances(context: ToolContext, networks: string[]): Promise<PortfolioResponse> {
+  const { client, session, logger, apiClient } = context;
+
+  const allAddresses = await client.getWalletAddresses(session.walletId);
+  const addressByType = Object.fromEntries(allAddresses.map(a => [a.addressType.toLowerCase(), a.address]));
+
+  const caip19Addresses = buildCaip19Addresses(networks, addressByType);
+
+  if (caip19Addresses.length === 0) {
+    throw new Error("No wallet addresses found for the requested networks");
+  }
+
+  logger.info(`Fetching token balances for networks: ${networks.join(", ")}`);
+  logger.debug(`CAIP-19 addresses: ${caip19Addresses.join(", ")}`);
+
+  const result = await apiClient.get<PortfolioResponse>("/portfolio/v1/fungibles/balances", {
+    params: { walletAddresses: caip19Addresses.join(","), includePrices: "true" },
+  });
+
+  logger.info("Successfully fetched token balances");
+  return result;
 }

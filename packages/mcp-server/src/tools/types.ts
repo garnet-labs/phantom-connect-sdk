@@ -3,6 +3,7 @@
  */
 
 import type { PhantomClient } from "@phantom/client";
+import type { PhantomApiClient } from "@phantom/phantom-api-client";
 import type { SessionData } from "../session/types.js";
 import type { Logger } from "../utils/logger.js";
 
@@ -16,6 +17,8 @@ export interface ToolContext {
   session: SessionData;
   /** Logger instance for this tool */
   logger: Logger;
+  /** Shared HTTP client for api.phantom.app (or proxy). Handles 402/429 automatically. */
+  apiClient: PhantomApiClient;
 }
 
 /**

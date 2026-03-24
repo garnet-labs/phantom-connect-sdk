@@ -1039,21 +1039,21 @@ All environment variables recognized by the MCP server, grouped by purpose:
 
 #### OAuth / Auth URLs
 
-| Variable                   | Default                              | Description                                                   |
-| -------------------------- | ------------------------------------ | ------------------------------------------------------------- |
-| `PHANTOM_AUTH_BASE_URL`    | `https://auth.phantom.app`           | Base URL for the Phantom auth service (token exchange, DCR).  |
-| `PHANTOM_CONNECT_BASE_URL` | `https://connect.phantom.app`        | Base URL for the Phantom Connect SSO page (browser redirect). |
-| `PHANTOM_API_BASE_URL`     | `https://api.phantom.app/v1/wallets` | Base URL for the Phantom wallet API.                          |
-| `PHANTOM_CALLBACK_PORT`    | `8080`                               | Local port for the OAuth redirect callback server.            |
-| `PHANTOM_CALLBACK_PATH`    | `/callback`                          | Path for the OAuth redirect callback.                         |
-| `PHANTOM_SSO_PROVIDER`     | `google`                             | Default SSO provider (`google` or `apple`).                   |
+| Variable                       | Default                              | Description                                                                   |
+| ------------------------------ | ------------------------------------ | ----------------------------------------------------------------------------- |
+| `PHANTOM_AUTH_BASE_URL`        | `https://auth.phantom.app`           | Base URL for the Phantom auth service (token exchange, DCR).                  |
+| `PHANTOM_CONNECT_BASE_URL`     | `https://connect.phantom.app`        | Base URL for the Phantom Connect SSO page (browser redirect).                 |
+| `PHANTOM_WALLETS_API_BASE_URL` | `https://api.phantom.app/v1/wallets` | Base URL for the Phantom wallets/KMS API used by `PhantomClient` for signing. |
+| `PHANTOM_CALLBACK_PORT`        | `8080`                               | Local port for the OAuth redirect callback server.                            |
+| `PHANTOM_CALLBACK_PATH`        | `/callback`                          | Path for the OAuth redirect callback.                                         |
+| `PHANTOM_SSO_PROVIDER`         | `google`                             | Default SSO provider (`google` or `apple`).                                   |
 
-#### API / swap
+#### API
 
-| Variable                 | Default                                  | Description                                                               |
-| ------------------------ | ---------------------------------------- | ------------------------------------------------------------------------- |
-| `PHANTOM_QUOTES_API_URL` | `https://api.phantom.app/swap/v2/quotes` | Override the swap quotes API endpoint used by `buy_token`. Must be HTTPS. |
-| `PHANTOM_VERSION`        | `mcp-server`                             | Value sent as the `X-Phantom-Version` request header.                     |
+| Variable               | Default                 | Description                                           |
+| ---------------------- | ----------------------- | ----------------------------------------------------- |
+| `PHANTOM_API_BASE_URL` | `http://localhost:3001` | Base URL for the Phantom API.                         |
+| `PHANTOM_VERSION`      | `mcp-server`            | Value sent as the `X-Phantom-Version` request header. |
 
 #### Logging / debugging
 

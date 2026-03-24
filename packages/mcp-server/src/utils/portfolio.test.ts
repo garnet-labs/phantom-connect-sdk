@@ -1,4 +1,4 @@
-import { ALL_NETWORKS, resolveNetworks, buildCaip19Addresses } from "./portfolio";
+import { ALL_NETWORKS, resolveNetworks, buildCaip19Addresses, fetchPortfolioBalances } from "./portfolio";
 
 const MOCK_ADDRESSES: Record<string, string> = {
   solana: "H8FpYTgx4Uy9aF9Nk9fCTqKKFLYQ9KfC6UJhMkMDzCBh",
@@ -92,5 +92,90 @@ describe("buildCaip19Addresses", () => {
     expect(result).toContain(`eip155:143/address:${MOCK_ADDRESSES.ethereum}`);
     expect(result).toContain(`bip122:000000000019d6689c085ae165831e93/address:${MOCK_ADDRESSES.bitcoinsegwit}`);
     expect(result).toContain(`sui:mainnet/address:${MOCK_ADDRESSES.sui}`);
+  });
+});
+
+// --- fetchPortfolioBalances ---
+
+describe("fetchPortfolioBalances", () => {
+  const PORTFOLIO_API_RESPONSE = {
+    items: [
+      {
+        name: "Wrapped SOL",
+        symbol: "SOL",
+        decimals: 9,
+        caip19: "solana:101/nativeToken:501",
+        totalQuantity: 5_000_000_000,
+        totalQuantityString: "5000000000",
+        spamStatus: "VERIFIED",
+        price: { price: 150, priceChange24h: 2 },
+        queriedWalletBalances: [{ address: MOCK_ADDRESSES.solana, quantity: 5, quantityString: "5000000000" }],
+      },
+    ],
+  };
+
+  const makeContext = (overrides: Record<string, unknown> = {}) => {
+    const apiClient = { get: jest.fn().mockResolvedValue(PORTFOLIO_API_RESPONSE) };
+    return {
+      client: {
+        getWalletAddresses: jest.fn().mockResolvedValue([
+          { addressType: "solana", address: MOCK_ADDRESSES.solana },
+          { addressType: "ethereum", address: MOCK_ADDRESSES.ethereum },
+        ]),
+        ...overrides,
+      },
+      session: { walletId: "wallet-1", organizationId: "org-1", appId: "test-app-id" },
+      logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+      apiClient,
+    };
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("fetches balances and returns parsed response", async () => {
+    const ctx = makeContext();
+    const result = await fetchPortfolioBalances(ctx as any, ["solana"]);
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].symbol).toBe("SOL");
+    expect(result.items[0].totalQuantity).toBe(5_000_000_000);
+  });
+
+  it("calls apiClient.get with correct path and CAIP-19 wallet addresses", async () => {
+    const ctx = makeContext();
+    await fetchPortfolioBalances(ctx as any, ["solana"]);
+
+    expect(ctx.apiClient.get).toHaveBeenCalledWith("/portfolio/v1/fungibles/balances", {
+      params: expect.objectContaining({
+        walletAddresses: expect.stringContaining("solana:101"),
+        includePrices: "true",
+      }),
+    });
+  });
+
+  it("throws when no wallet addresses match requested networks", async () => {
+    const ctx = makeContext({
+      getWalletAddresses: jest.fn().mockResolvedValue([]),
+    });
+
+    await expect(fetchPortfolioBalances(ctx as any, ["solana"])).rejects.toThrow("No wallet addresses found");
+  });
+
+  it("propagates errors from apiClient", async () => {
+    const ctx = makeContext();
+    ctx.apiClient.get.mockRejectedValue(new Error("HTTP 401 — Unauthorized"));
+
+    await expect(fetchPortfolioBalances(ctx as any, ["solana"])).rejects.toThrow("HTTP 401");
+  });
+
+  it("includes multiple networks in walletAddresses param", async () => {
+    const ctx = makeContext();
+    await fetchPortfolioBalances(ctx as any, ["solana", "ethereum"]);
+
+    const [, opts] = ctx.apiClient.get.mock.calls[0];
+    expect(opts.params.walletAddresses).toContain("solana:101");
+    expect(opts.params.walletAddresses).toContain("eip155:1");
   });
 });

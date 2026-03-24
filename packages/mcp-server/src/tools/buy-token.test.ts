@@ -77,24 +77,33 @@ const EVM_TO_SOLANA_CROSS_CHAIN_QUOTE_RESPONSE = {
   ],
 };
 
-const makeContext = (overrides: Record<string, unknown> = {}) => ({
-  client: {
-    signAndSendTransaction: jest.fn().mockResolvedValue({ hash: "0xtxhash", rawTransaction: "0xraw" }),
-    getWalletAddresses: jest.fn().mockResolvedValue([
-      { addressType: "solana", address: "So11111111111111111111111111111111111111112" },
-      { addressType: "ethereum", address: "0xabcdef1234567890abcdef1234567890abcdef12" },
-    ]),
-    ...overrides,
-  },
-  session: { walletId: "wallet-1", organizationId: "org-1", appId: "test-app-id" },
-  logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
-});
+const makeContext = (overrides: Record<string, unknown> = {}) => {
+  const apiClient = {
+    post: jest.fn().mockResolvedValue(SOLANA_QUOTE_RESPONSE),
+    get: jest.fn().mockResolvedValue({}),
+    setPaymentSignature: jest.fn(),
+  };
+  return {
+    client: {
+      signAndSendTransaction: jest.fn().mockResolvedValue({ hash: "0xtxhash", rawTransaction: "0xraw" }),
+      getWalletAddresses: jest.fn().mockResolvedValue([
+        { addressType: "solana", address: "So11111111111111111111111111111111111111112" },
+        { addressType: "ethereum", address: "0xabcdef1234567890abcdef1234567890abcdef12" },
+      ]),
+      ...overrides,
+    },
+    session: { walletId: "wallet-1", organizationId: "org-1", appId: "test-app-id" },
+    logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+    apiClient,
+  };
+};
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // mockFetch is still used for EVM gas/nonce RPC calls
   mockFetch.mockResolvedValue({
     ok: true,
-    text: () => Promise.resolve(JSON.stringify(SOLANA_QUOTE_RESPONSE)),
+    json: () => Promise.resolve({ result: "0x1" }),
   });
 });
 
@@ -118,9 +127,10 @@ describe("buy_token — Solana (backward compat)", () => {
       { amount: "1000000", sellTokenIsNative: true, buyTokenMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" },
       ctx as any,
     );
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.taker.chainId).toBe("solana:101");
-    expect(body.sellToken.chainId).toBe("solana:101");
+    // Quotes now go through apiClient.post — second arg is the request body object
+    const body = ctx.apiClient.post.mock.calls[0][1] as Record<string, unknown>;
+    expect((body.taker as Record<string, unknown>).chainId).toBe("solana:101");
+    expect((body.sellToken as Record<string, unknown>).chainId).toBe("solana:101");
   });
 
   it("returns quote without executing when execute: false", async () => {
@@ -163,14 +173,13 @@ describe("buy_token — Solana (backward compat)", () => {
 
 describe("buy_token — EVM same-chain", () => {
   beforeEach(() => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      text: () => Promise.resolve(JSON.stringify(EVM_QUOTE_RESPONSE)),
-    });
+    // EVM quote tests: apiClient.post returns the EVM quote
+    // mockFetch remains for nonce/gas JSON-RPC calls
   });
 
   it("uses EVM address as taker for eip155 chain", async () => {
     const ctx = makeContext();
+    ctx.apiClient.post.mockResolvedValue(EVM_QUOTE_RESPONSE);
     await buyTokenTool.handler(
       {
         amount: "1000000000000000000",
@@ -180,13 +189,14 @@ describe("buy_token — EVM same-chain", () => {
       },
       ctx as any,
     );
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.taker.chainId).toBe("eip155:1");
-    expect(body.taker.address).toBe("0xabcdef1234567890abcdef1234567890abcdef12");
+    const body = ctx.apiClient.post.mock.calls[0][1] as Record<string, unknown>;
+    expect((body.taker as Record<string, unknown>).chainId).toBe("eip155:1");
+    expect((body.taker as Record<string, unknown>).address).toBe("0xabcdef1234567890abcdef1234567890abcdef12");
   });
 
   it("builds correct EVM token objects", async () => {
     const ctx = makeContext();
+    ctx.apiClient.post.mockResolvedValue(EVM_QUOTE_RESPONSE);
     await buyTokenTool.handler(
       {
         amount: "1000000000000000000",
@@ -196,7 +206,7 @@ describe("buy_token — EVM same-chain", () => {
       },
       ctx as any,
     );
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    const body = ctx.apiClient.post.mock.calls[0][1] as Record<string, unknown>;
     expect(body.sellToken).toEqual({ chainId: "eip155:8453", resourceType: "nativeToken", slip44: "8453" });
     expect(body.buyToken).toEqual({
       chainId: "eip155:8453",
@@ -233,6 +243,7 @@ describe("buy_token — EVM same-chain", () => {
 
   it("uses 18 decimals for native EVM token with UI amount", async () => {
     const ctx = makeContext();
+    ctx.apiClient.post.mockResolvedValue(EVM_QUOTE_RESPONSE);
     await buyTokenTool.handler(
       {
         amount: "1",
@@ -243,17 +254,18 @@ describe("buy_token — EVM same-chain", () => {
       },
       ctx as any,
     );
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    const body = ctx.apiClient.post.mock.calls[0][1] as Record<string, unknown>;
     expect(body.sellAmount).toBe("1000000000000000000"); // 1 * 10^18
   });
 
   it("executes EVM swap: builds full tx from quote fields, RLP-encodes, then signs", async () => {
     const { parseToKmsTransaction } = jest.requireMock("@phantom/parsers");
+    const ctx = makeContext();
+    ctx.apiClient.post.mockResolvedValue(EVM_QUOTE_RESPONSE);
+    // mockFetch handles nonce and gasPrice JSON-RPC calls
     mockFetch
-      .mockResolvedValueOnce({ ok: true, text: () => Promise.resolve(JSON.stringify(EVM_QUOTE_RESPONSE)) })
       .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ result: "0x3" }) })
       .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ result: "0x77359400" }) });
-    const ctx = makeContext();
     const result = (await buyTokenTool.handler(
       {
         amount: "1000000000000000000",
@@ -284,15 +296,9 @@ describe("buy_token — EVM same-chain", () => {
 });
 
 describe("buy_token — cross-chain", () => {
-  beforeEach(() => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      text: () => Promise.resolve(JSON.stringify(CROSS_CHAIN_QUOTE_RESPONSE)),
-    });
-  });
-
   it("adds takerDestination and chainAddresses for cross-chain", async () => {
     const ctx = makeContext();
+    ctx.apiClient.post.mockResolvedValue(CROSS_CHAIN_QUOTE_RESPONSE);
     await buyTokenTool.handler(
       {
         amount: "1000000000",
@@ -303,7 +309,7 @@ describe("buy_token — cross-chain", () => {
       },
       ctx as any,
     );
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    const body = ctx.apiClient.post.mock.calls[0][1] as Record<string, unknown>;
     expect(body.takerDestination).toEqual({
       chainId: "eip155:1",
       resourceType: "address",
@@ -317,6 +323,7 @@ describe("buy_token — cross-chain", () => {
 
   it("executes cross-chain swap when execute: true", async () => {
     const ctx = makeContext();
+    ctx.apiClient.post.mockResolvedValue(CROSS_CHAIN_QUOTE_RESPONSE);
     const result = (await buyTokenTool.handler(
       {
         amount: "1000000000",
@@ -333,15 +340,13 @@ describe("buy_token — cross-chain", () => {
   });
 
   it("executes EVM→Solana cross-chain swap: reads exchangeAddress/value from steps[0]", async () => {
-    mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        text: () => Promise.resolve(JSON.stringify(EVM_TO_SOLANA_CROSS_CHAIN_QUOTE_RESPONSE)),
-      })
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ result: "0x3" }) })
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ result: "0x77359400" }) });
     const { parseToKmsTransaction } = jest.requireMock("@phantom/parsers");
     const ctx = makeContext();
+    ctx.apiClient.post.mockResolvedValue(EVM_TO_SOLANA_CROSS_CHAIN_QUOTE_RESPONSE);
+    // mockFetch handles nonce and gasPrice JSON-RPC calls
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ result: "0x3" }) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ result: "0x77359400" }) });
     const result = (await buyTokenTool.handler(
       {
         amount: "400000000000000",
@@ -367,6 +372,7 @@ describe("buy_token — cross-chain", () => {
 
   it("returns quote with steps for cross-chain (execute: false)", async () => {
     const ctx = makeContext();
+    ctx.apiClient.post.mockResolvedValue(CROSS_CHAIN_QUOTE_RESPONSE);
     const result = (await buyTokenTool.handler(
       {
         amount: "1000000000",

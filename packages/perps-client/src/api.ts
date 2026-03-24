@@ -1,9 +1,8 @@
 /**
  * Thin HTTP wrapper for Phantom backend perps endpoints.
- * Logs every request URL + params and every error response body.
+ * Logs every request and every error response body.
  */
 
-import axios, { AxiosError } from "axios";
 import type {
   PerpAccountBalance,
   PerpPosition,
@@ -23,84 +22,32 @@ import type {
 } from "./types.js";
 import { noopLogger } from "./types.js";
 
-const DEFAULT_PHANTOM_VERSION = "mcp-server";
-
-/** Keys whose values are redacted from debug logs. EVM addresses are public, only signatures are sensitive. */
-const SENSITIVE_LOG_KEYS = new Set(["pubkey", "signature", "sig"]);
-
-function sanitizeForLog(obj: Record<string, unknown>): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(obj)) {
-    result[k] = SENSITIVE_LOG_KEYS.has(k.toLowerCase()) ? "[redacted]" : v;
-  }
-  return result;
+/** Minimal interface compatible with PhantomApiClient from @phantom/phantom-api-client */
+export interface ApiClient {
+  get<T>(path: string, options?: { params?: Record<string, string> }): Promise<T>;
+  post<T>(path: string, body: unknown): Promise<T>;
 }
 
 export interface PerpsApiOptions {
-  baseUrl: string;
-  appId?: string;
   logger?: PerpsLogger;
+  apiClient: ApiClient;
 }
 
 export class PerpsApi {
-  private readonly baseUrl: string;
-  private readonly headers: Record<string, string>;
   private readonly logger: PerpsLogger;
+  private readonly apiClient: ApiClient;
 
   constructor(options: PerpsApiOptions) {
-    this.baseUrl = options.baseUrl.replace(/\/$/, "");
     this.logger = options.logger ?? noopLogger;
-
-    this.headers = {
-      "x-phantom-platform": "ext-sdk",
-      "x-phantom-client": "mcp",
-      "X-Phantom-Version": process.env.PHANTOM_VERSION ?? DEFAULT_PHANTOM_VERSION,
-    };
-    if (options.appId) {
-      this.headers["x-api-key"] = options.appId;
-      this.headers["X-App-Id"] = options.appId;
-    }
+    this.apiClient = options.apiClient;
   }
 
   private async get<T>(path: string, params?: Record<string, string>): Promise<T> {
-    const url = `${this.baseUrl}${path}`;
-    const safeParams = params ? sanitizeForLog(params as Record<string, unknown>) : undefined;
-    const paramStr = safeParams ? `?${new URLSearchParams(safeParams as Record<string, string>).toString()}` : "";
-    this.logger.debug(`GET ${url}${paramStr}`);
-    try {
-      const r = await axios.get<T>(url, { params, headers: this.headers });
-      this.logger.debug(`GET ${path} → ${r.status}`);
-      return r.data;
-    } catch (err) {
-      throw this.wrapAxiosError(err, "GET", url);
-    }
+    return this.apiClient.get<T>(path, { params });
   }
 
   private async post<T>(path: string, body: unknown): Promise<T> {
-    const url = `${this.baseUrl}${path}`;
-    const safeBody = body && typeof body === "object" ? sanitizeForLog(body as Record<string, unknown>) : body;
-    this.logger.debug(`POST ${url} body=${JSON.stringify(safeBody)}`);
-    try {
-      const r = await axios.post<T>(url, body, { headers: this.headers });
-      this.logger.debug(`POST ${path} → ${r.status}`);
-      return r.data;
-    } catch (err) {
-      throw this.wrapAxiosError(err, "POST", url);
-    }
-  }
-
-  /**
-   * Wraps an AxiosError so the response body is visible in logs and error messages.
-   */
-  private wrapAxiosError(err: unknown, method: string, url: string): Error {
-    if (err instanceof AxiosError) {
-      const status = err.response?.status ?? "no-response";
-      const body = err.response?.data ? JSON.stringify(err.response.data) : err.message;
-      const message = `Phantom API ${method} ${url} failed: HTTP ${status} — ${body}`;
-      this.logger.error(message);
-      return new Error(message);
-    }
-    return err instanceof Error ? err : new Error(String(err));
+    return this.apiClient.post<T>(path, body);
   }
 
   async getAccountBalance(user: string): Promise<PerpAccountBalance> {

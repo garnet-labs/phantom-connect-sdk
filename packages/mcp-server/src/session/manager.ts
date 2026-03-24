@@ -24,8 +24,8 @@ export interface SessionManagerOptions {
   authBaseUrl?: string;
   /** Base URL for Phantom Connect (overrides PHANTOM_CONNECT_BASE_URL and env-based default) */
   connectBaseUrl?: string;
-  /** Base URL for Phantom API (default: https://api.phantom.app or PHANTOM_API_BASE_URL env var) */
-  apiBaseUrl?: string;
+  /** Base URL for Phantom wallets API (default: https://api.phantom.app/v1/wallets or PHANTOM_WALLETS_API_BASE_URL env var) */
+  walletsApiBaseUrl?: string;
   /** Port for local OAuth callback server (default: 8080 or PHANTOM_CALLBACK_PORT env var) */
   callbackPort?: number;
   /** Path for OAuth callback (default: /callback or PHANTOM_CALLBACK_PATH env var) */
@@ -63,7 +63,7 @@ export interface SessionManagerOptions {
 export class SessionManager {
   private readonly authBaseUrl: string;
   private readonly connectBaseUrl: string;
-  private readonly apiBaseUrl: string;
+  private readonly walletsApiBaseUrl: string;
   private readonly callbackPort: number;
   private readonly callbackPath: string;
   private readonly appId: string;
@@ -136,7 +136,11 @@ export class SessionManager {
       resolvedAuthFlow = "sso";
     }
     this.authFlow = resolvedAuthFlow;
-    this.apiBaseUrl = options.apiBaseUrl ?? process.env.PHANTOM_API_BASE_URL ?? "https://api.phantom.app/v1/wallets";
+    this.walletsApiBaseUrl =
+      options.walletsApiBaseUrl?.trim() ||
+      process.env.PHANTOM_WALLETS_API_BASE_URL?.trim() ||
+      "" ||
+      "https://api.phantom.app/v1/wallets";
 
     const defaultPort = 8080;
     const parseEnvPort = (value: string): number | null => {
@@ -396,7 +400,7 @@ export class SessionManager {
     // Step 3: Create PhantomClient with stamper, organizationId, and headers
     this.client = new PhantomClient(
       {
-        apiBaseUrl: this.apiBaseUrl,
+        apiBaseUrl: this.walletsApiBaseUrl,
         organizationId: this.session.organizationId,
         walletType: "user-wallet",
         headers,

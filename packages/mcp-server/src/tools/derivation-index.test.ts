@@ -23,6 +23,12 @@ function createContext(clientOverrides: Record<string, unknown> = {}): ToolConte
     child: jest.fn(),
   };
 
+  const apiClient = {
+    get: jest.fn().mockResolvedValue({}),
+    post: jest.fn().mockResolvedValue({}),
+    setPaymentSignature: jest.fn(),
+  };
+
   return {
     client: client as unknown as ToolContext["client"],
     session: {
@@ -34,6 +40,7 @@ function createContext(clientOverrides: Record<string, unknown> = {}): ToolConte
       updatedAt: Date.now(),
     },
     logger: logger as unknown as ToolContext["logger"],
+    apiClient: apiClient as unknown as ToolContext["apiClient"],
   };
 }
 
@@ -133,11 +140,10 @@ describe("derivationIndex coercion", () => {
 
   it("coerces string derivationIndex for buy_token execute flow", async () => {
     const context = createContext();
-    jest.spyOn(globalThis, "fetch").mockResolvedValue({
-      ok: true,
-      status: 200,
-      text: () => Promise.resolve(JSON.stringify({ quotes: [{ transactionData: ["AA=="] }] })),
-    } as Response);
+    // buy_token now routes all quotes through context.apiClient (proxy)
+    (context.apiClient.post as jest.Mock).mockResolvedValue({
+      quotes: [{ transactionData: ["AA=="] }],
+    });
 
     await buyTokenTool.handler(
       {

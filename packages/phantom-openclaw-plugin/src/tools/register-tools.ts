@@ -5,6 +5,7 @@
 import { Type } from "@sinclair/typebox";
 import type { TSchema } from "@sinclair/typebox";
 import { tools } from "@phantom/mcp-server";
+import { PhantomApiClient } from "@phantom/phantom-api-client";
 import type { OpenClawApi } from "../client/types.js";
 import type { PluginSession } from "../session.js";
 
@@ -304,6 +305,26 @@ function convertSchema(mcpSchema: unknown): TSchema {
  * Register all Phantom MCP tools with OpenClaw
  */
 export function registerPhantomTools(api: OpenClawApi, session: PluginSession): void {
+  const sessionData = session.getSession();
+  const appId =
+    (sessionData && typeof sessionData.appId === "string" && sessionData.appId) ||
+    process.env.PHANTOM_APP_ID ||
+    process.env.PHANTOM_CLIENT_ID ||
+    undefined;
+
+  const apiClient = new PhantomApiClient({
+    baseUrl: process.env.PHANTOM_API_BASE_URL ?? "https://api.phantom.app",
+  });
+
+  const staticHeaders: Record<string, string> = {};
+  if (appId) {
+    staticHeaders["x-api-key"] = appId;
+    staticHeaders["X-App-Id"] = appId;
+  }
+  if (Object.keys(staticHeaders).length > 0) {
+    apiClient.setHeaders(staticHeaders);
+  }
+
   for (const mcpTool of tools) {
     api.registerTool({
       name: mcpTool.name,
@@ -323,6 +344,7 @@ export function registerPhantomTools(api: OpenClawApi, session: PluginSession): 
           client: session.getClient(),
           session: session.getSession(),
           logger: createLogger(mcpTool.name),
+          apiClient,
         };
 
         try {

@@ -3,7 +3,7 @@
  */
 
 import { base64urlEncode } from "@phantom/base64url";
-import { NetworkId } from "@phantom/client";
+import type { NetworkId } from "@phantom/client";
 import { isSolanaChain } from "@phantom/utils";
 import { parseToKmsTransaction } from "@phantom/parsers";
 import { Connection, PublicKey, SystemProgram, Transaction, type Commitment } from "@solana/web3.js";
@@ -17,28 +17,12 @@ import {
 import type { ToolHandler, ToolContext } from "./types.js";
 import { normalizeNetworkId } from "../utils/network.js";
 import { getSolanaAddress } from "../utils/solana.js";
-import { getEthereumAddress, resolveEvmRpcUrl, estimateGas, fetchGasPrice, assertEvmAddress } from "../utils/evm.js";
+import { getEthereumAddress, estimateGas, fetchGasPrice, assertEvmAddress } from "../utils/evm.js";
+import { resolveSolanaRpcUrl, resolveEvmRpcUrl } from "../utils/rpc.js";
 import { parseBaseUnitAmount, parseUiAmount, requirePositiveAmount } from "../utils/amount.js";
 import { parseOptionalNonNegativeInteger } from "../utils/params.js";
 
-const DEFAULT_SOLANA_RPC_URLS: Record<string, string> = {
-  [NetworkId.SOLANA_MAINNET]: "https://api.mainnet-beta.solana.com",
-  [NetworkId.SOLANA_DEVNET]: "https://api.devnet.solana.com",
-  [NetworkId.SOLANA_TESTNET]: "https://api.testnet.solana.com",
-};
-
 const DEFAULT_COMMITMENT: Commitment = "confirmed";
-
-function resolveSolanaRpcUrl(networkId: string, rpcUrl?: string): string {
-  if (rpcUrl && typeof rpcUrl === "string") return rpcUrl;
-  const resolved = DEFAULT_SOLANA_RPC_URLS[networkId];
-  if (!resolved) {
-    throw new Error(
-      `rpcUrl is required for networkId "${networkId}". Supported defaults: ${Object.keys(DEFAULT_SOLANA_RPC_URLS).join(", ")}`,
-    );
-  }
-  return resolved;
-}
 
 /**
  * Encodes an ERC-20 transfer(address,uint256) calldata.
