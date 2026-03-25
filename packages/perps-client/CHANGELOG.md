@@ -1,5 +1,11 @@
 # @phantom/perps-client
 
+## 0.1.3
+
+### Patch Changes
+
+- ada97b2: Fix package json for perps
+
 ## 0.1.2
 
 ### Patch Changes

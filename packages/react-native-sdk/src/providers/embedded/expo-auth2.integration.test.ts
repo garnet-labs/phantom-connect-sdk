@@ -67,13 +67,18 @@ function makeJwt(payload: Record<string, unknown>): string {
   return `${encode({ alg: "HS256", typ: "JWT" })}.${encode({ aud: [], ...payload })}.sig`;
 }
 
+function makeA2tJwt(): string {
+  const now = Math.floor(Date.now() / 1000);
+  return makeJwt({ exp: now + 3600, iat: now });
+}
+
 function mockTokenResponse(overrides: Record<string, unknown> = {}) {
   return {
     ok: true,
     json: async () =>
       Promise.resolve({
         // Real JWT format so parseClaims (jwtDecode) can extract ext.a2t and sub claims.
-        access_token: makeJwt({ sub: "rn-user", ext: { a2t: "rn-auth2-token" } }),
+        access_token: makeJwt({ sub: "rn-user", ext: { a2t: makeA2tJwt() } }),
         token_type: "Bearer",
         expires_in: 7200,
         ...overrides,

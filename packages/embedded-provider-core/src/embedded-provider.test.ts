@@ -1,3 +1,4 @@
+import { Auth2TokenExpiredError } from "@phantom/auth2";
 import { EmbeddedProvider } from "./embedded-provider";
 import type { EmbeddedProviderConfig } from "./types";
 import { generateKeyPair } from "@phantom/client";
@@ -466,6 +467,90 @@ describe("EmbeddedProvider Core", () => {
 
       expect(mockPlatform.storage.clearSession).not.toHaveBeenCalled();
       expect(provider.isConnected()).toBe(true);
+    });
+  });
+
+  describe("Auth2 token expiration disconnect", () => {
+    const mockSession = {
+      sessionId: "test-session-id",
+      walletId: "test-wallet-id",
+      organizationId: "org-123",
+      appId: "app-123",
+      stamperInfo: { keyId: "test-key-id", publicKey: "11111111111111111111111111111111" },
+      authProvider: "google",
+      userInfo: {},
+      status: "completed" as const,
+      createdAt: Date.now(),
+      lastUsed: Date.now(),
+      authenticatorCreatedAt: Date.now(),
+      authenticatorExpiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+      lastRenewalAttempt: undefined,
+      username: "test-user",
+    };
+
+    beforeEach(() => {
+      mockPlatform.storage.getSession.mockResolvedValue(mockSession);
+      provider["walletId"] = "test-wallet-id";
+      const { parseToKmsTransaction } = jest.requireMock("@phantom/parsers");
+      parseToKmsTransaction.mockResolvedValue({ parsed: "mock-base64url" });
+      provider["addresses"] = [{ addressType: "solana", address: "mockAddress" }];
+    });
+
+    it.each([
+      {
+        name: "signMessage",
+        clientMethod: "signUtf8Message",
+        call: (p: EmbeddedProvider) => p.signMessage({ message: "hello", networkId: "solana:101" }),
+      },
+      {
+        name: "signEthereumMessage",
+        clientMethod: "ethereumSignMessage",
+        call: (p: EmbeddedProvider) => p.signEthereumMessage({ message: "0x68656c6c6f", networkId: "eip155:1" }),
+      },
+      {
+        name: "signTypedDataV4",
+        clientMethod: "ethereumSignTypedData",
+        call: (p: EmbeddedProvider) => p.signTypedDataV4({ typedData: {}, networkId: "eip155:1" }),
+      },
+      {
+        name: "signTransaction",
+        clientMethod: "signTransaction",
+        call: (p: EmbeddedProvider) => p.signTransaction({ transaction: "mock-tx", networkId: "solana:101" }),
+      },
+      {
+        name: "signAndSendTransaction",
+        clientMethod: "signAndSendTransaction",
+        call: (p: EmbeddedProvider) => p.signAndSendTransaction({ transaction: "mock-tx", networkId: "solana:101" }),
+      },
+    ])(
+      "should disconnect and throw Auth2TokenExpiredError when $name gets an expired a2t",
+      async ({ clientMethod, call }) => {
+        const mockClient: any = {
+          [clientMethod]: jest.fn().mockRejectedValue(new Auth2TokenExpiredError()),
+        };
+        provider["client"] = mockClient;
+
+        await expect(call(provider)).rejects.toThrow(Auth2TokenExpiredError);
+
+        expect(mockPlatform.storage.clearSession).toHaveBeenCalled();
+        expect(provider.isConnected()).toBe(false);
+      },
+    );
+
+    it("should emit a disconnect event when disconnecting due to expired a2t", async () => {
+      const mockClient: any = {
+        signUtf8Message: jest.fn().mockRejectedValue(new Auth2TokenExpiredError()),
+      };
+      provider["client"] = mockClient;
+
+      const disconnectListener = jest.fn();
+      provider.on("disconnect", disconnectListener);
+
+      await expect(provider.signMessage({ message: "hello", networkId: "solana:101" })).rejects.toThrow(
+        Auth2TokenExpiredError,
+      );
+
+      expect(disconnectListener).toHaveBeenCalledWith({ source: "manual" });
     });
   });
 

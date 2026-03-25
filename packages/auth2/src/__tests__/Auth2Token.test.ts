@@ -3,7 +3,7 @@ jest.mock("jwt-decode", () => ({
   jwtDecode: mockJwtDecode,
 }));
 
-import { Auth2Token } from "../Auth2Token";
+import { Auth2Token, Auth2TokenExpiredError } from "../Auth2Token";
 
 const WALLET_URN_PREFIX = "urn:phantom:wallet:";
 
@@ -54,10 +54,22 @@ describe("Auth2Token", () => {
   });
 
   describe("a2t getter", () => {
-    it("returns the ext.a2t claim from the token", () => {
-      mockJwtDecode.mockReturnValueOnce(makeClaims({ a2t: "inner-auth2-tok" }));
+    it("returns a2t when exp is in the future", () => {
+      const validA2tClaims = { exp: Math.floor(Date.now() / 1_000) + 3600, iat: 0 };
+      mockJwtDecode.mockReturnValueOnce(makeClaims({ a2t: "valid-a2t" })).mockReturnValueOnce(validA2tClaims);
 
-      expect(Auth2Token.fromAccessToken("tok").a2t).toBe("inner-auth2-tok");
+      const token = Auth2Token.fromAccessToken("tok");
+
+      expect(token.a2t).toBe("valid-a2t");
+    });
+
+    it("throws Auth2TokenExpiredError when a2t exp is in the past", () => {
+      const expiredA2tClaims = { exp: Math.floor(Date.now() / 1_000) - 60, iat: 0 };
+      mockJwtDecode.mockReturnValueOnce(makeClaims({ a2t: "expired-a2t" })).mockReturnValueOnce(expiredA2tClaims);
+
+      const token = Auth2Token.fromAccessToken("tok");
+
+      expect(() => token.a2t).toThrow(Auth2TokenExpiredError);
     });
   });
 

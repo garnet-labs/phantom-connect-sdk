@@ -59,12 +59,17 @@ function makeJwt(payload: Record<string, unknown>): string {
   return `${encode({ alg: "HS256" })}.${encode({ aud: [], ...payload })}.sig`;
 }
 
+function makeA2tJwt(): string {
+  const now = Math.floor(Date.now() / 1000);
+  return makeJwt({ exp: now + 3600, iat: now });
+}
+
 function mockTokenResponse(overrides: Record<string, unknown> = {}) {
   return {
     ok: true,
     json: async () =>
       Promise.resolve({
-        access_token: makeJwt({ sub: "integration-user-1" }),
+        access_token: makeJwt({ sub: "integration-user-1", ext: { a2t: makeA2tJwt() } }),
         id_token: "integration-id-token",
         token_type: "Bearer",
         expires_in: 3600,
@@ -228,7 +233,7 @@ describe("Auth2 browser flow — end-to-end", () => {
     await expect(stamper.stamp({ type: "OIDC", data: Buffer.from("test-payload") })).rejects.toThrow("not initialized");
 
     await stamper.setTokens({
-      accessToken: makeJwt({ sub: "test-user", ext: { a2t: "integration-id-token" } }),
+      accessToken: makeJwt({ sub: "test-user", ext: { a2t: makeA2tJwt() } }),
       idType: "Bearer",
     });
     const stampStr = await stamper.stamp({ type: "OIDC", data: Buffer.from("test-payload") });

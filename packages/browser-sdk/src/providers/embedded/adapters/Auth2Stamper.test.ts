@@ -30,6 +30,11 @@ function makeJwt(payload: Record<string, unknown>): string {
   return `${encode({ alg: "HS256" })}.${encode({ aud: [], ...payload })}.sig`;
 }
 
+function makeA2tJwt(): string {
+  const now = Math.floor(Date.now() / 1000);
+  return makeJwt({ exp: now + 3600, iat: now });
+}
+
 beforeEach(() => {
   Object.defineProperty(globalThis.crypto, "subtle", {
     value: mockSubtle,
@@ -131,7 +136,7 @@ describe("Auth2Stamper", () => {
       const stamper1 = new Auth2Stamper(new IndexedDBAuth2StamperStorage(dbName));
       await stamper1.init();
       await stamper1.setTokens({
-        accessToken: makeJwt({ sub: "u", ext: { a2t: "persisted-token" } }),
+        accessToken: makeJwt({ sub: "u", ext: { a2t: makeA2tJwt() } }),
         idType: "Bearer",
       });
 
@@ -149,7 +154,7 @@ describe("Auth2Stamper", () => {
       const stamper = makeStamper();
       await stamper.init();
 
-      await stamper.setTokens({ accessToken: makeJwt({ sub: "u", ext: { a2t: "my-token" } }), idType: "Bearer" });
+      await stamper.setTokens({ accessToken: makeJwt({ sub: "u", ext: { a2t: makeA2tJwt() } }), idType: "Bearer" });
 
       await expect(stamper.stamp({ type: "OIDC", data: Buffer.from("payload") })).resolves.toBeTruthy();
     });
@@ -158,8 +163,9 @@ describe("Auth2Stamper", () => {
       const dbName = `persist-db-${Date.now()}`;
       const stamper = new Auth2Stamper(new IndexedDBAuth2StamperStorage(dbName));
       await stamper.init();
+      const a2tJwt = makeA2tJwt();
       await stamper.setTokens({
-        accessToken: makeJwt({ sub: "u", ext: { a2t: "auto-connect-token" } }),
+        accessToken: makeJwt({ sub: "u", ext: { a2t: a2tJwt } }),
         idType: "Bearer",
       });
 
@@ -170,14 +176,14 @@ describe("Auth2Stamper", () => {
       const decoded = JSON.parse(Buffer.from(stampStr, "base64url").toString("utf-8")) as {
         idToken: string;
       };
-      expect(decoded.idToken).toBe("auto-connect-token");
+      expect(decoded.idToken).toBe(a2tJwt);
     });
 
     it("persists bearerToken and refreshToken to IndexedDB", async () => {
       const dbName = `persist-tokens-db-${Date.now()}`;
       const stamper = new Auth2Stamper(new IndexedDBAuth2StamperStorage(dbName));
       await stamper.init();
-      const accessToken = makeJwt({ sub: "u", ext: { a2t: "a2t-tok" } });
+      const accessToken = makeJwt({ sub: "u", ext: { a2t: makeA2tJwt() } });
       await stamper.setTokens({
         accessToken,
         idType: "Bearer",
@@ -203,7 +209,7 @@ describe("Auth2Stamper", () => {
     it("bearerToken returns '{idType} {accessToken}' after setTokens()", async () => {
       const stamper = makeStamper();
       await stamper.init();
-      const accessToken = makeJwt({ sub: "test-user", ext: { a2t: "a2t-tok" } });
+      const accessToken = makeJwt({ sub: "test-user", ext: { a2t: makeA2tJwt() } });
       await stamper.setTokens({ accessToken, idType: "Bearer", refreshToken: "refresh-tok" });
 
       expect(stamper.bearerToken).toBe(`Bearer ${accessToken}`);
@@ -212,7 +218,7 @@ describe("Auth2Stamper", () => {
     it("auth2Token.sub matches the sub claim in the access token", async () => {
       const stamper = makeStamper();
       await stamper.init();
-      const accessToken = makeJwt({ sub: "test-user", ext: { a2t: "a2t-tok" } });
+      const accessToken = makeJwt({ sub: "test-user", ext: { a2t: makeA2tJwt() } });
       await stamper.setTokens({ accessToken, idType: "Bearer" });
 
       expect(stamper.auth2Token?.sub).toBe("test-user");
@@ -221,7 +227,7 @@ describe("Auth2Stamper", () => {
     it("bearerToken returns null after clear()", async () => {
       const stamper = makeStamper();
       await stamper.init();
-      await stamper.setTokens({ accessToken: makeJwt({ sub: "u", ext: { a2t: "tok" } }), idType: "Bearer" });
+      await stamper.setTokens({ accessToken: makeJwt({ sub: "u", ext: { a2t: makeA2tJwt() } }), idType: "Bearer" });
       await stamper.clear();
 
       expect(stamper.bearerToken).toBeNull();
@@ -230,7 +236,7 @@ describe("Auth2Stamper", () => {
     it("auth2Token returns null after clear()", async () => {
       const stamper = makeStamper();
       await stamper.init();
-      await stamper.setTokens({ accessToken: makeJwt({ sub: "u", ext: { a2t: "tok" } }), idType: "Bearer" });
+      await stamper.setTokens({ accessToken: makeJwt({ sub: "u", ext: { a2t: makeA2tJwt() } }), idType: "Bearer" });
       await stamper.clear();
 
       expect(stamper.auth2Token).toBeNull();
@@ -247,7 +253,7 @@ describe("Auth2Stamper", () => {
     it("signs the data with ECDSA P-256 / SHA-256", async () => {
       const stamper = makeStamper();
       await stamper.init();
-      await stamper.setTokens({ accessToken: makeJwt({ sub: "u", ext: { a2t: "tok" } }), idType: "Bearer" });
+      await stamper.setTokens({ accessToken: makeJwt({ sub: "u", ext: { a2t: makeA2tJwt() } }), idType: "Bearer" });
 
       const data = Buffer.from("test message");
       await stamper.stamp({ type: "OIDC", data });
@@ -270,7 +276,8 @@ describe("Auth2Stamper", () => {
       const stamper = makeStamper();
       await stamper.init();
 
-      await stamper.setTokens({ accessToken: makeJwt({ sub: "u", ext: { a2t: "test-id-token" } }), idType: "Bearer" });
+      const a2tJwt = makeA2tJwt();
+      await stamper.setTokens({ accessToken: makeJwt({ sub: "u", ext: { a2t: a2tJwt } }), idType: "Bearer" });
 
       const stampStr = await stamper.stamp({ type: "OIDC", data: Buffer.from("payload") });
       const decoded = JSON.parse(Buffer.from(stampStr, "base64url").toString("utf-8")) as {
@@ -283,7 +290,7 @@ describe("Auth2Stamper", () => {
       };
 
       expect(decoded.kind).toBe("OIDC");
-      expect(decoded.idToken).toBe("test-id-token");
+      expect(decoded.idToken).toBe(a2tJwt);
       expect(decoded.algorithm).toBe("Secp256r1");
       expect(decoded.salt).toBe("");
       expect(typeof decoded.publicKey).toBe("string");
@@ -293,7 +300,7 @@ describe("Auth2Stamper", () => {
     it("uses the stored public key (base64url of raw P-256 bytes) in the OIDC stamp", async () => {
       const stamper = makeStamper();
       await stamper.init();
-      await stamper.setTokens({ accessToken: makeJwt({ sub: "u", ext: { a2t: "tok" } }), idType: "Bearer" });
+      await stamper.setTokens({ accessToken: makeJwt({ sub: "u", ext: { a2t: makeA2tJwt() } }), idType: "Bearer" });
 
       const stampStr = await stamper.stamp({ type: "OIDC", data: Buffer.from("data") });
       const decoded = JSON.parse(Buffer.from(stampStr, "base64url").toString("utf-8")) as {
@@ -307,7 +314,7 @@ describe("Auth2Stamper", () => {
     it("works with empty data", async () => {
       const stamper = makeStamper();
       await stamper.init();
-      await stamper.setTokens({ accessToken: makeJwt({ sub: "u", ext: { a2t: "tok" } }), idType: "Bearer" });
+      await stamper.setTokens({ accessToken: makeJwt({ sub: "u", ext: { a2t: makeA2tJwt() } }), idType: "Bearer" });
       await expect(stamper.stamp({ type: "OIDC", data: Buffer.from("") })).resolves.toBeTruthy();
     });
   });
@@ -335,7 +342,7 @@ describe("Auth2Stamper", () => {
     it("clears the id token", async () => {
       const stamper = makeStamper();
       await stamper.init();
-      await stamper.setTokens({ accessToken: makeJwt({ sub: "u", ext: { a2t: "t" } }), idType: "Bearer" });
+      await stamper.setTokens({ accessToken: makeJwt({ sub: "u", ext: { a2t: makeA2tJwt() } }), idType: "Bearer" });
 
       await stamper.resetKeyPair();
 

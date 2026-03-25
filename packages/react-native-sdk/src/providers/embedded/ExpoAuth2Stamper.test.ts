@@ -32,7 +32,12 @@ function makeJwt(payload: Record<string, unknown>): string {
   return `${encode({ alg: "HS256", typ: "JWT" })}.${encode({ aud: [], ...payload })}.sig`;
 }
 
-const DEFAULT_ACCESS_TOKEN = makeJwt({ sub: "default-user", ext: { a2t: "default-auth2-token" } });
+function makeA2tJwt(): string {
+  const now = Math.floor(Date.now() / 1000);
+  return makeJwt({ exp: now + 3600, iat: now });
+}
+
+const DEFAULT_ACCESS_TOKEN = makeJwt({ sub: "default-user", ext: { a2t: makeA2tJwt() } });
 
 beforeEach(() => {
   Object.defineProperty(globalThis.crypto, "subtle", {
@@ -203,7 +208,7 @@ describe("Auth2Stamper (SecureStore)", () => {
       const stamper = new Auth2Stamper(new SecureStoreAuth2StamperStorage(storageKey));
       await stamper.init();
 
-      const tokenX = makeJwt({ sub: "u", ext: { a2t: "a2t-x" } });
+      const tokenX = makeJwt({ sub: "u", ext: { a2t: makeA2tJwt() } });
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord());
       await stamper.setTokens({ accessToken: tokenX, idType: "Bearer", refreshToken: "refresh-x" });
 
@@ -216,7 +221,8 @@ describe("Auth2Stamper (SecureStore)", () => {
 
     it("restores auth2Token in stamp output after a reload", async () => {
       // auth2Token is derived from the accessToken via parseClaims → jwtDecode (ext.a2t claim)
-      const reloadAccessToken = makeJwt({ sub: "u", ext: { a2t: "reload-auth2-token" } });
+      const reloadA2tJwt = makeA2tJwt();
+      const reloadAccessToken = makeJwt({ sub: "u", ext: { a2t: reloadA2tJwt } });
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(
         storedRecord({ accessToken: reloadAccessToken, idType: "Bearer" }),
       );
@@ -228,7 +234,7 @@ describe("Auth2Stamper (SecureStore)", () => {
       const decoded = JSON.parse(Buffer.from(stampStr, "base64url").toString()) as {
         idToken: string;
       };
-      expect(decoded.idToken).toBe("reload-auth2-token");
+      expect(decoded.idToken).toBe(reloadA2tJwt);
     });
   });
 
@@ -271,7 +277,8 @@ describe("Auth2Stamper (SecureStore)", () => {
       const stamper = makeStamper();
       await stamper.init();
 
-      const rnAccessToken = makeJwt({ sub: "u", ext: { a2t: "rn-auth2-token" } });
+      const rnA2tJwt = makeA2tJwt();
+      const rnAccessToken = makeJwt({ sub: "u", ext: { a2t: rnA2tJwt } });
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(storedRecord());
       await stamper.setTokens({ accessToken: rnAccessToken, idType: "Bearer" });
 
@@ -286,7 +293,7 @@ describe("Auth2Stamper (SecureStore)", () => {
       };
 
       expect(decoded.kind).toBe("OIDC");
-      expect(decoded.idToken).toBe("rn-auth2-token");
+      expect(decoded.idToken).toBe(rnA2tJwt);
       expect(decoded.algorithm).toBe("Secp256r1");
       expect(decoded.salt).toBe("");
       expect(typeof decoded.publicKey).toBe("string");

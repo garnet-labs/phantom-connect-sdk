@@ -43,7 +43,8 @@ function makeJwt(payload: Record<string, unknown>): string {
   return `${encode({ alg: "HS256" })}.${encode({ aud: [], ...payload })}.sig`;
 }
 
-const DEFAULT_ACCESS_TOKEN = makeJwt({ sub: "user-1", client_id: "test-client", ext: { a2t: "auth2-tok" } });
+const DEFAULT_A2T = makeJwt({ exp: Math.floor(Date.now() / 1_000) + 3600, iat: Math.floor(Date.now() / 1_000) });
+const DEFAULT_ACCESS_TOKEN = makeJwt({ sub: "user-1", client_id: "test-client", ext: { a2t: DEFAULT_A2T } });
 
 const MOCK_RAW_PUB = new Uint8Array([0x04, ...Array(64).fill(0x01)]);
 
@@ -582,7 +583,7 @@ describe("completeAuth2Exchange()", () => {
     mockExchangeAuthCode.mockResolvedValueOnce({
       accessToken: makeJwt({
         sub: "user-1",
-        ext: { a2t: "auth2-tok" },
+        ext: { a2t: DEFAULT_A2T },
         aud: ["urn:phantom:wallet:wallet-from-token:2"],
       }),
       idType: "Bearer",
@@ -608,7 +609,7 @@ describe("completeAuth2Exchange()", () => {
     mockExchangeAuthCode.mockResolvedValueOnce({
       accessToken: makeJwt({
         sub: "user-1",
-        ext: { a2t: "auth2-tok" },
+        ext: { a2t: DEFAULT_A2T },
         aud: ["urn:phantom:wallet:wallet-from-token:3"],
       }),
       idType: "Bearer",
@@ -837,7 +838,7 @@ describe("_getOrMigrateWallet()", () => {
   function makeToken(overrides: Partial<{ client_id: string; walletUrn: string }> = {}) {
     const aud = overrides.walletUrn ? [overrides.walletUrn] : [];
     return Auth2Token.fromAccessToken(
-      makeJwt({ sub: "user-1", client_id: overrides.client_id ?? "test-client", ext: { a2t: "t" }, aud }),
+      makeJwt({ sub: "user-1", client_id: overrides.client_id ?? "test-client", ext: { a2t: DEFAULT_A2T }, aud }),
     );
   }
 

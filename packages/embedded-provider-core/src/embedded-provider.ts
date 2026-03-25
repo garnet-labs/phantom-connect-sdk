@@ -39,6 +39,7 @@ import type {
 } from "./types";
 import { retryWithBackoff } from "./utils/retry";
 import { generateSessionId } from "./utils/session";
+import { Auth2TokenExpiredError } from "@phantom/auth2";
 
 export type EmbeddedProviderEvent =
   | "connect"
@@ -733,13 +734,19 @@ export class EmbeddedProvider {
 
   /**
    * Handles errors from signing operations.
-   * Disconnects the user if the server returns a 401/403 (revoked or expired authenticator).
+   * Disconnects the user if the server returns a 401/403 (revoked or expired authenticator)
+   * or if the Auth2 token (a2t) has expired.
    */
   private async handleSigningError(error: unknown): Promise<never> {
     if (isAuthenticationError(error)) {
       this.logger.warn("EMBEDDED_PROVIDER", "Authenticator rejected by server (401/403), disconnecting", { error });
       await this.disconnect(false);
       throw new Error("Authenticator revoked");
+    }
+    if (error instanceof Error && error.name === Auth2TokenExpiredError.name) {
+      this.logger.warn("EMBEDDED_PROVIDER", "Auth2 token expired, disconnecting", { error });
+      await this.disconnect(false);
+      throw error;
     }
     if (error instanceof SpendingLimitError) {
       this.emit("spending_limit_reached", { error });
