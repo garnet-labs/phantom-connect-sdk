@@ -1,6 +1,6 @@
 {
   "name": "@phantom/phantom-api-client",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Shared HTTP client for api.phantom.app with 402/429 payment gating support",
   "repository": {
     "type": "git",

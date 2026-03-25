@@ -1,6 +1,6 @@
 {
   "name": "@phantom/mcp-server",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "MCP Server for Phantom Wallet",
   "repository": {
     "type": "git",

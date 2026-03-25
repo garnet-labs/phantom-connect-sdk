@@ -1,6 +1,6 @@
 {
   "name": "@phantom/perps-client",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Hyperliquid perpetuals client for Phantom Wallet",
   "repository": {
     "type": "git",
@@ -18,6 +18,8 @@
     }
   },
   "scripts": {
+    "?pack-release": "When https://github.com/changesets/changesets/issues/432 has a solution we can remove this trick",
+    "pack-release": "rimraf ./_release && yarn pack && mkdir ./_release && tar zxvf ./package.tgz --directory ./_release && rm ./package.tgz",
     "build": "rimraf ./dist && tsup src/index.ts --format cjs,esm --dts",
     "dev": "tsc --watch",
     "test": "jest",
@@ -40,5 +42,11 @@
     "@phantom/phantom-api-client": "workspace:^",
     "axios": "^1.6.7",
     "js-sha3": "^0.9.3"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "directory": "_release/package"
   }
 }

@@ -1,5 +1,14 @@
 # @phantom/mcp-server
 
+## 0.2.4
+
+### Patch Changes
+
+- 04a0319: Fix dependencies
+- Updated dependencies [04a0319]
+  - @phantom/perps-client@0.1.4
+  - @phantom/phantom-api-client@0.1.2
+
 ## 0.2.3
 
 ### Patch Changes

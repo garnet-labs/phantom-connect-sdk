@@ -1,5 +1,11 @@
 # @phantom/phantom-api-client
 
+## 0.1.2
+
+### Patch Changes
+
+- 04a0319: Fix dependencies
+
 ## 0.1.1
 
 ### Patch Changes
