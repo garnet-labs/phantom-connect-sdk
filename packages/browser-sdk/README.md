@@ -216,6 +216,7 @@ const sdk = new BrowserSDK({
   authOptions: {
     authUrl: "https://connect.phantom.app/login", // optional
     redirectUrl: "https://yourapp.com/callback", // optional, defaults to current page
+    authApiBaseUrl: "https://auth.phantom.app", // optional
   },
   autoConnect: true, // optional, auto-connect to existing session (default: true when embedded providers are used)
 });
@@ -231,8 +232,9 @@ const sdk = new BrowserSDK({
   addressTypes: [AddressType.solana, AddressType.ethereum],
   appId: "your-app-id", // Required for deeplink
   authOptions: {
-    authUrl: "https://connect.phantom.app/login",
+    authUrl: "https://connect.phantom.app/login/start",
     redirectUrl: "https://yourapp.com/callback",
+    authApiBaseUrl: "https://auth.phantom.app",
   },
 });
 ```
@@ -325,9 +327,11 @@ interface BrowserSDKConfig {
 
   // Optional configuration
   apiBaseUrl?: string; // Phantom API base URL (optional, has default)
+
   authOptions?: {
-    authUrl?: string; // Custom auth URL (optional, defaults to "https://connect.phantom.app/login")
+    authUrl?: string; // Custom auth URL (optional, defaults to "https://connect.phantom.app/login/start")
     redirectUrl?: string; // Custom redirect URL after authentication (optional)
+    authApiBaseUrl?: string; // Custom OAuth URL (optional, defaults to "https://auth.phantom.app")
   };
   embeddedWalletType?: "user-wallet"; // Wallet type (optional, defaults to "user-wallet")
   autoConnect?: boolean; // Auto-connect to existing session (default: true when embedded providers used)

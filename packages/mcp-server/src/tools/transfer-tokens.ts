@@ -2,6 +2,7 @@
  * transfer_tokens tool - Transfers native tokens or fungible tokens on Solana and EVM chains.
  */
 
+import bs58 from "bs58";
 import { base64urlEncode } from "@phantom/base64url";
 import type { NetworkId } from "@phantom/client";
 import { isSolanaChain } from "@phantom/utils";
@@ -15,12 +16,13 @@ import {
   getMint,
 } from "@solana/spl-token";
 import type { ToolHandler, ToolContext } from "./types.js";
-import { normalizeNetworkId } from "../utils/network.js";
+import { normalizeNetworkId, normalizeSwapperChainId } from "../utils/network.js";
 import { getSolanaAddress } from "../utils/solana.js";
 import { getEthereumAddress, estimateGas, fetchGasPrice, assertEvmAddress } from "../utils/evm.js";
 import { resolveSolanaRpcUrl, resolveEvmRpcUrl } from "../utils/rpc.js";
 import { parseBaseUnitAmount, parseUiAmount, requirePositiveAmount } from "../utils/amount.js";
 import { parseOptionalNonNegativeInteger } from "../utils/params.js";
+import { runSimulation } from "../utils/simulation.js";
 
 const DEFAULT_COMMITMENT: Commitment = "confirmed";
 
@@ -37,13 +39,20 @@ function encodeErc20Transfer(recipient: string, amount: bigint): string {
 export const transferTokensTool: ToolHandler = {
   name: "transfer_tokens",
   description:
-    "Transfers native tokens or fungible tokens on Solana and EVM chains. Builds, signs, and immediately broadcasts the transaction. " +
+    "Transfers native tokens or fungible tokens on Solana and EVM chains. " +
     "Use this for direct token sends (e.g. 'send 1 SOL to X', 'send 0.01 ETH to Y', 'transfer 100 USDC on Base'). " +
     "For swaps/exchanges (e.g. 'swap USDC for SOL'), use buy_token instead. " +
     "Solana: supports SOL and SPL tokens. EVM: supports native tokens (ETH, MATIC, etc.) and ERC-20 tokens. " +
     "IMPORTANT: The sending wallet must hold enough native token for fees (SOL on Solana, ETH/native on EVM). " +
     "For ERC-20 transfers, provide decimals when using amountUnit: 'ui'. " +
-    "Success response: {walletId, networkId, from, to, tokenMint: string|null, signature: string|null, rawTransaction: string}.",
+    "TWO-STEP FLOW — always call this tool twice: " +
+    "(1) First call WITHOUT confirmed (or confirmed: false): builds the transaction, runs a simulation, and returns the preview " +
+    "showing expected asset changes, warnings, and any blocking conditions. " +
+    "Present these results to the user and ask 'Does this look correct? Shall I proceed with the transfer?' " +
+    "If the simulation is blocked (block field is set), inform the user and do NOT proceed. " +
+    "(2) Second call WITH confirmed: true (only after explicit user approval): builds and submits the transaction. " +
+    "Response WITHOUT confirmed: {simulation: {expectedChanges, warnings, block?, advancedDetails?}, status: 'pending_confirmation'}. " +
+    "Response WITH confirmed: true: {walletId, networkId, from, to, tokenMint: string|null, signature: string|null, rawTransaction: string}.",
   inputSchema: {
     type: "object",
     properties: {
@@ -94,6 +103,12 @@ export const transferTokensTool: ToolHandler = {
         type: "boolean",
         description: "Solana only: create destination associated token account if missing (default: true)",
       },
+      confirmed: {
+        type: "boolean",
+        description:
+          "Set to true only after the user has reviewed and approved the simulation results. " +
+          "Omit (or false) on the first call to get a simulation preview without submitting.",
+      },
     },
     required: ["networkId", "to", "amount"],
   },
@@ -131,6 +146,7 @@ export const transferTokensTool: ToolHandler = {
 
     const tokenMint = typeof params.tokenMint === "string" ? params.tokenMint : undefined;
     const rpcUrlOverride = typeof params.rpcUrl === "string" ? params.rpcUrl : undefined;
+    const confirmed = params.confirmed === true;
 
     // ─── EVM path ────────────────────────────────────────────────────────────
     if (isEvm) {
@@ -189,6 +205,33 @@ export const transferTokensTool: ToolHandler = {
       try {
         const baseTx: Record<string, unknown> = { from, to: txTo, value, chainId };
         if (data) baseTx.data = data;
+
+        // ── Simulate before submitting ───────────────────────────────────────
+        if (!confirmed) {
+          logger.info("Running simulation before transfer (confirmed not set)");
+          const simulation = await runSimulation(
+            {
+              type: "transaction",
+              chainId: normalizedNetworkId,
+              userAccount: from,
+              params: {
+                transactions: [
+                  {
+                    from,
+                    to: txTo,
+                    value,
+                    chainId: `0x${chainId.toString(16)}`,
+                    type: "0x2",
+                    ...(data ? { data } : {}),
+                  },
+                ],
+              },
+            },
+            context,
+          );
+          logger.info("Simulation complete — awaiting user confirmation");
+          return { status: "pending_confirmation", simulation };
+        }
 
         const gas = await estimateGas(rpcUrl, { from, to: txTo, value, ...(data ? { data } : {}) });
         baseTx.gas = gas;
@@ -316,6 +359,24 @@ export const transferTokensTool: ToolHandler = {
       tx.recentBlockhash = blockhash;
 
       const serialized = tx.serialize({ requireAllSignatures: false, verifySignatures: false });
+
+      // ── Simulate before submitting ─────────────────────────────────────────
+      if (!confirmed) {
+        logger.info("Running simulation before transfer (confirmed not set)");
+        const base58Tx = bs58.encode(serialized);
+        const simulation = await runSimulation(
+          {
+            type: "transaction",
+            chainId: normalizeSwapperChainId(normalizedNetworkId),
+            userAccount: fromAddress,
+            params: { transactions: [base58Tx], method: "signAndSendTransaction" },
+          },
+          context,
+        );
+        logger.info("Simulation complete — awaiting user confirmation");
+        return { status: "pending_confirmation", simulation };
+      }
+
       const encoded = base64urlEncode(serialized);
 
       const result = await client.signAndSendTransaction({

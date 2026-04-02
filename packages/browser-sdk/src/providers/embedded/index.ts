@@ -1,11 +1,9 @@
 import { EmbeddedProvider as CoreEmbeddedProvider } from "@phantom/embedded-provider-core";
 import type { EmbeddedProviderConfig, PlatformAdapter } from "@phantom/embedded-provider-core";
-import { IndexedDbStamper } from "@phantom/indexed-db-stamper";
 import { Auth2Stamper } from "@phantom/auth2";
 import {
   BrowserStorage,
   BrowserURLParamsAccessor,
-  BrowserAuthProvider,
   Auth2AuthProvider,
   IndexedDBAuth2StamperStorage,
   BrowserPhantomAppProvider,
@@ -26,42 +24,30 @@ export class EmbeddedProvider extends CoreEmbeddedProvider implements Provider {
     const urlParamsAccessor = new BrowserURLParamsAccessor();
     const storage = new BrowserStorage();
 
-    const stamper = config.unstable__auth2Options
-      ? new Auth2Stamper(new IndexedDBAuth2StamperStorage(`phantom-auth2-${config.appId}`), {
-          authApiBaseUrl: config.unstable__auth2Options.authApiBaseUrl,
-          clientId: config.unstable__auth2Options.clientId,
-          redirectUri: config.authOptions?.redirectUrl ?? "",
-        })
-      : new IndexedDbStamper({
-          dbName: `phantom-embedded-sdk-${config.appId}`,
-          storeName: "crypto-keys",
-          keyName: "signing-key",
-        });
+    const stamper = new Auth2Stamper(new IndexedDBAuth2StamperStorage(`phantom-auth2-${config.appId}`), {
+      authApiBaseUrl: config.authOptions.authApiBaseUrl,
+      clientId: config.appId,
+      redirectUri: config.authOptions.redirectUrl,
+    });
 
     const platformName = getPlatformName();
     const { name: browserName, version } = detectBrowser();
 
-    const authProvider =
-      config.unstable__auth2Options &&
-      config.authOptions?.authUrl &&
-      config.authOptions?.redirectUrl &&
-      stamper instanceof Auth2Stamper
-        ? new Auth2AuthProvider(
-            stamper,
-            storage,
-            urlParamsAccessor,
-            {
-              redirectUri: config.authOptions.redirectUrl,
-              connectLoginUrl: config.authOptions.authUrl,
-              clientId: config.unstable__auth2Options.clientId,
-              authApiBaseUrl: config.unstable__auth2Options.authApiBaseUrl,
-            },
-            {
-              apiBaseUrl: config.apiBaseUrl,
-              appId: config.appId,
-            },
-          )
-        : new BrowserAuthProvider(urlParamsAccessor);
+    const authProvider = new Auth2AuthProvider(
+      stamper,
+      storage,
+      urlParamsAccessor,
+      {
+        redirectUri: config.authOptions.redirectUrl,
+        connectLoginUrl: config.authOptions.authUrl,
+        clientId: config.appId,
+        authApiBaseUrl: config.authOptions.authApiBaseUrl,
+      },
+      {
+        apiBaseUrl: config.apiBaseUrl,
+        appId: config.appId,
+      },
+    );
 
     const platform: PlatformAdapter = {
       storage,

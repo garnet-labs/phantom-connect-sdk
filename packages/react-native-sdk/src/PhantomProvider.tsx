@@ -10,6 +10,7 @@ import type {
 import type { PhantomSDKConfig, PhantomDebugConfig, WalletAddress } from "./types";
 import {
   ANALYTICS_HEADERS,
+  DEFAULT_AUTH_API_BASE_URL,
   DEFAULT_WALLET_API_URL,
   DEFAULT_EMBEDDED_WALLET_TYPE,
   DEFAULT_AUTH_URL,
@@ -20,12 +21,10 @@ import { ModalProvider } from "./ModalProvider";
 import { PhantomContext, type PhantomContextValue, type PhantomErrors } from "./PhantomContext";
 // Platform adapters for React Native/Expo
 import { ExpoSecureStorage } from "./providers/embedded/storage";
-import { ExpoAuthProvider } from "./providers/embedded/auth";
 import { ExpoAuth2AuthProvider } from "./providers/embedded/ExpoAuth2AuthProvider";
 import { Auth2Stamper } from "@phantom/auth2";
 import { SecureStoreAuth2StamperStorage } from "./providers/embedded/SecureStoreAuth2StamperStorage";
 import { ExpoURLParamsAccessor } from "./providers/embedded/url-params";
-import { ReactNativeStamper } from "./providers/embedded/stamper";
 import { ExpoLogger } from "./providers/embedded/logger";
 import { ReactNativePhantomAppProvider } from "./providers/embedded/phantom-app";
 import { Platform } from "react-native";
@@ -48,7 +47,7 @@ export function PhantomProvider({ children, config, debugConfig, theme, appIcon,
   const [user, setUser] = useState<ConnectResult | null>(null);
 
   // Memoized config to avoid unnecessary SDK recreation
-  const memoizedConfig: EmbeddedProviderConfig = useMemo(() => {
+  const memoizedConfig = useMemo(() => {
     // Build redirect URL if not provided
     const redirectUrl = config.authOptions?.redirectUrl || `${config.scheme}://phantom-auth-callback`;
 
@@ -58,11 +57,11 @@ export function PhantomProvider({ children, config, debugConfig, theme, appIcon,
       apiBaseUrl: config.apiBaseUrl || DEFAULT_WALLET_API_URL,
       embeddedWalletType: config.embeddedWalletType || DEFAULT_EMBEDDED_WALLET_TYPE,
       authOptions: {
-        ...(config.authOptions || {}),
         redirectUrl,
         authUrl: config.authOptions?.authUrl || DEFAULT_AUTH_URL,
+        authApiBaseUrl: config.authOptions?.authApiBaseUrl || DEFAULT_AUTH_API_BASE_URL,
       },
-    };
+    } satisfies EmbeddedProviderConfig;
   }, [config]);
 
   // Eager initialization - SDK created immediately and never null
@@ -72,38 +71,25 @@ export function PhantomProvider({ children, config, debugConfig, theme, appIcon,
     const urlParamsAccessor = new ExpoURLParamsAccessor();
     const logger = new ExpoLogger(debugConfig?.enabled || false);
 
-    const stamper =
-      config.unstable__auth2Options && config.authOptions?.redirectUrl
-        ? new Auth2Stamper(new SecureStoreAuth2StamperStorage(`phantom-auth2-${memoizedConfig.appId}`), {
-            authApiBaseUrl: config.unstable__auth2Options.authApiBaseUrl,
-            clientId: config.unstable__auth2Options.clientId,
-            redirectUri: config.authOptions.redirectUrl,
-          })
-        : new ReactNativeStamper({
-            keyPrefix: `phantom-rn-${memoizedConfig.appId}`,
-            appId: memoizedConfig.appId,
-          });
+    const stamper = new Auth2Stamper(new SecureStoreAuth2StamperStorage(`phantom-auth2-${memoizedConfig.appId}`), {
+      authApiBaseUrl: memoizedConfig.authOptions.authApiBaseUrl,
+      clientId: memoizedConfig.appId,
+      redirectUri: memoizedConfig.authOptions.redirectUrl,
+    });
 
-    const authProvider =
-      config.unstable__auth2Options &&
-      config.authOptions?.authUrl &&
-      config.authOptions?.redirectUrl &&
-      config.apiBaseUrl &&
-      stamper instanceof Auth2Stamper
-        ? new ExpoAuth2AuthProvider(
-            stamper,
-            {
-              redirectUri: config.authOptions.redirectUrl,
-              connectLoginUrl: config.authOptions.authUrl,
-              clientId: config.unstable__auth2Options.clientId,
-              authApiBaseUrl: config.unstable__auth2Options.authApiBaseUrl,
-            },
-            {
-              apiBaseUrl: config.apiBaseUrl,
-              appId: config.appId,
-            },
-          )
-        : new ExpoAuthProvider();
+    const authProvider = new ExpoAuth2AuthProvider(
+      stamper,
+      {
+        redirectUri: memoizedConfig.authOptions.redirectUrl,
+        connectLoginUrl: memoizedConfig.authOptions.authUrl,
+        clientId: memoizedConfig.appId,
+        authApiBaseUrl: memoizedConfig.authOptions.authApiBaseUrl,
+      },
+      {
+        apiBaseUrl: memoizedConfig.apiBaseUrl,
+        appId: memoizedConfig.appId,
+      },
+    );
 
     const platformName = `${Platform.OS}-${Platform.Version}`;
 

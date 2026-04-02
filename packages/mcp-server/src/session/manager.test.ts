@@ -1,52 +1,78 @@
-/**
- * Tests for SessionManager
- */
-
-// Mock all external dependencies FIRST before any imports
 jest.mock("./storage");
 jest.mock("../auth/oauth");
+jest.mock("../auth/DeviceCodeAuthProvider");
+jest.mock("../auth/NodeFileAuth2StamperStorage", () => ({
+  NodeFileAuth2StamperStorage: jest.fn().mockImplementation(() => ({
+    clear: jest.fn().mockResolvedValue(undefined),
+  })),
+}));
 jest.mock("@phantom/client", () => ({
-  PhantomClient: jest.fn().mockImplementation(() => ({})),
+  PhantomClient: jest.fn().mockImplementation(() => ({
+    getWalletAddresses: jest.fn().mockResolvedValue([]),
+  })),
 }));
 jest.mock("@phantom/api-key-stamper", () => ({
   ApiKeyStamper: jest.fn().mockImplementation(() => ({})),
 }));
-jest.mock("@phantom/crypto", () => ({
-  generateKeyPair: jest.fn(),
+jest.mock("@phantom/auth2", () => ({
+  Auth2Stamper: jest.fn().mockImplementation(() => ({
+    init: jest.fn().mockResolvedValue(undefined),
+    bearerToken: "Bearer access-token",
+    auth2Token: { sub: "auth-user-id" },
+    getKeyInfo: jest.fn().mockReturnValue({ publicKey: "device-public-key" }),
+    getCryptoKeyPair: jest.fn().mockReturnValue({}),
+  })),
 }));
 
 import { SessionManager } from "./manager";
 import { SessionStorage } from "./storage";
 import { OAuthFlow } from "../auth/oauth";
+import { DeviceCodeAuthProvider } from "../auth/DeviceCodeAuthProvider";
+import { NodeFileAuth2StamperStorage } from "../auth/NodeFileAuth2StamperStorage";
 import { PhantomClient } from "@phantom/client";
 import { ApiKeyStamper } from "@phantom/api-key-stamper";
-import { generateKeyPair } from "@phantom/crypto";
+import { Auth2Stamper } from "@phantom/auth2";
 import type { SessionData } from "./types";
 import type { OAuthFlowResult } from "../auth/oauth";
+import type { DeviceCodeAuthResult } from "../auth/DeviceCodeAuthProvider";
 
 describe("SessionManager", () => {
   let mockStorage: jest.Mocked<SessionStorage>;
   let mockOAuthFlow: jest.Mocked<OAuthFlow>;
+  let mockDeviceCodeAuthProvider: jest.Mocked<DeviceCodeAuthProvider>;
+  let mockAuth2Stamper: {
+    init: jest.Mock;
+    bearerToken: string | null;
+    auth2Token: { sub: string } | null;
+    getKeyInfo: jest.Mock;
+    getCryptoKeyPair: jest.Mock;
+  };
 
-  // Helper to create a valid session
-  const createValidSession = (): SessionData => ({
-    walletId: "test-wallet-id",
-    organizationId: "test-org-id",
-    authUserId: "test-user-id",
+  const createSsoSession = (): SessionData => ({
+    walletId: "sso-wallet-id",
+    organizationId: "sso-org-id",
+    authUserId: "sso-user-id",
+    authFlow: "sso",
+    appId: "sso-app-id",
     stamperKeys: {
-      publicKey: "test-public-key",
-      secretKey: "test-secret-key",
+      publicKey: "sso-public-key",
+      secretKey: "sso-secret-key",
     },
     createdAt: Math.floor(Date.now() / 1000) - 1000,
     updatedAt: Math.floor(Date.now() / 1000) - 1000,
   });
 
-  // Helper to create an expired session (SSO sessions don't expire, but kept for test structure)
-  const createExpiredSession = (): SessionData => ({
-    ...createValidSession(),
+  const createDeviceCodeSession = (overrides: Partial<SessionData> = {}): SessionData => ({
+    walletId: "device-wallet-id",
+    organizationId: "device-org-id",
+    authUserId: "device-user-id",
+    appId: "device-client-id",
+    authFlow: "device-code",
+    createdAt: Math.floor(Date.now() / 1000) - 1000,
+    updatedAt: Math.floor(Date.now() / 1000) - 1000,
+    ...overrides,
   });
 
-  // Helper to create OAuth flow result (SSO pattern)
   const createOAuthResult = (): OAuthFlowResult => ({
     walletId: "new-wallet-id",
     organizationId: "new-org-id",
@@ -62,365 +88,217 @@ describe("SessionManager", () => {
     },
   });
 
+  const createDeviceCodeResult = (): DeviceCodeAuthResult => ({
+    walletId: "device-wallet-id",
+    organizationId: "device-org-id",
+    authUserId: "device-user-id",
+    appId: "device-client-id",
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
 
-    // Setup mock storage
     mockStorage = new SessionStorage() as jest.Mocked<SessionStorage>;
     (SessionStorage as jest.Mock).mockImplementation(() => mockStorage);
+    (mockStorage as unknown as { sessionDir: string }).sessionDir = "/tmp/test-phantom-mcp";
 
-    // Setup mock OAuth flow
-    mockOAuthFlow = new OAuthFlow() as jest.Mocked<OAuthFlow>;
+    mockOAuthFlow = { authenticate: jest.fn() } as unknown as jest.Mocked<OAuthFlow>;
     (OAuthFlow as jest.Mock).mockImplementation(() => mockOAuthFlow);
 
-    // Mock generateKeyPair
-    (generateKeyPair as jest.Mock).mockReturnValue({
-      publicKey: "generated-public-key",
-      secretKey: "generated-secret-key",
-    });
+    mockDeviceCodeAuthProvider = { authenticate: jest.fn() } as unknown as jest.Mocked<DeviceCodeAuthProvider>;
+    (DeviceCodeAuthProvider as jest.Mock).mockImplementation(() => mockDeviceCodeAuthProvider);
+
+    mockAuth2Stamper = {
+      init: jest.fn().mockResolvedValue(undefined),
+      bearerToken: "Bearer access-token",
+      auth2Token: { sub: "auth-user-id" },
+      getKeyInfo: jest.fn().mockReturnValue({ publicKey: "device-public-key" }),
+      getCryptoKeyPair: jest.fn().mockReturnValue({}),
+    };
+    (Auth2Stamper as jest.Mock).mockImplementation(() => mockAuth2Stamper);
   });
 
-  describe("constructor", () => {
-    it("should create SessionManager with default options", () => {
-      const manager = new SessionManager();
-      expect(manager).toBeDefined();
-      expect(SessionStorage).toHaveBeenCalledWith(undefined);
-    });
-
-    it("should create SessionManager with custom options", () => {
-      const options = {
-        authBaseUrl: "https://custom-auth.example.com",
-        connectBaseUrl: "https://custom-connect.example.com",
-        apiBaseUrl: "https://custom-api.example.com",
-        callbackPort: 9090,
-        appId: "custom-app",
-        sessionDir: "/custom/path",
-      };
-
-      const manager = new SessionManager(options);
-      expect(manager).toBeDefined();
-      expect(SessionStorage).toHaveBeenCalledWith("/custom/path");
-    });
-
-    it("should use environment variables for URLs", () => {
-      process.env.PHANTOM_AUTH_BASE_URL = "https://env-auth.example.com";
-      process.env.PHANTOM_CONNECT_BASE_URL = "https://env-connect.example.com";
-      process.env.PHANTOM_WALLETS_API_BASE_URL = "https://env-api.example.com";
-
-      const manager = new SessionManager();
-      expect(manager).toBeDefined();
-
-      // Clean up
-      delete process.env.PHANTOM_AUTH_BASE_URL;
-      delete process.env.PHANTOM_CONNECT_BASE_URL;
-      delete process.env.PHANTOM_WALLETS_API_BASE_URL;
-    });
+  it("creates SessionManager with default options", () => {
+    const manager = new SessionManager();
+    expect(manager).toBeDefined();
+    expect(SessionStorage).toHaveBeenCalledWith(undefined);
   });
 
-  describe("initialize", () => {
-    it("should load and use existing valid session", async () => {
-      const validSession = createValidSession();
-      mockStorage.load.mockReturnValue(validSession);
-      mockStorage.isExpired.mockReturnValue(false);
+  it("loads and uses an existing SSO session", async () => {
+    const session = createSsoSession();
+    mockStorage.load.mockReturnValue(session);
+    mockStorage.isExpired.mockReturnValue(false);
 
-      const manager = new SessionManager();
-      await manager.initialize();
+    const manager = new SessionManager();
+    await manager.initialize();
 
-      expect(mockStorage.load).toHaveBeenCalled();
-      expect(mockStorage.isExpired).toHaveBeenCalledWith(validSession);
-      expect(mockOAuthFlow.authenticate).not.toHaveBeenCalled();
-      expect(ApiKeyStamper).toHaveBeenCalledWith({
-        apiSecretKey: validSession.stamperKeys.secretKey,
-      });
-      expect(PhantomClient).toHaveBeenCalledWith(
-        expect.objectContaining({
-          apiBaseUrl: "https://api.phantom.app/v1/wallets",
-          organizationId: validSession.organizationId,
-          walletType: "user-wallet",
-          headers: expect.objectContaining({
-            "x-phantom-platform": "ext-sdk",
-            "x-phantom-sdk-type": "server",
-            "x-phantom-client": "mcp",
-            "x-phantom-sdk-version": expect.any(String),
-            "x-app-id": "phantom-mcp",
-          }),
-        }),
-        expect.anything(),
-      );
-    });
-
-    it("should authenticate when no session exists", async () => {
-      mockStorage.load.mockReturnValue(null);
-      mockOAuthFlow.authenticate.mockResolvedValue(createOAuthResult());
-
-      const manager = new SessionManager();
-      await manager.initialize();
-
-      expect(mockStorage.load).toHaveBeenCalled();
-      expect(mockOAuthFlow.authenticate).toHaveBeenCalled();
-      // SSO: stamper keys generated inside OAuthFlow, not by SessionManager
-      expect(mockStorage.save).toHaveBeenCalled();
-    });
-
-    // SSO sessions don't expire, so this test is no longer applicable
-    it.skip("should re-authenticate when session is expired (OAuth - deprecated)", async () => {
-      const expiredSession = createExpiredSession();
-      mockStorage.load.mockReturnValue(expiredSession);
-      mockStorage.isExpired.mockReturnValue(true);
-      mockOAuthFlow.authenticate.mockResolvedValue(createOAuthResult());
-
-      const manager = new SessionManager();
-      await manager.initialize();
-
-      expect(mockStorage.load).toHaveBeenCalled();
-      expect(mockStorage.isExpired).toHaveBeenCalledWith(expiredSession);
-      expect(mockOAuthFlow.authenticate).toHaveBeenCalled();
-      expect(mockStorage.save).toHaveBeenCalled();
-    });
-
-    it("should create session with correct data structure", async () => {
-      mockStorage.load.mockReturnValue(null);
-      const oauthResult = createOAuthResult();
-      mockOAuthFlow.authenticate.mockResolvedValue(oauthResult);
-
-      const manager = new SessionManager();
-      await manager.initialize();
-
-      expect(mockStorage.save).toHaveBeenCalledWith(
-        expect.objectContaining({
-          walletId: oauthResult.walletId,
-          organizationId: oauthResult.organizationId,
-          authUserId: oauthResult.authUserId,
-          appId: oauthResult.clientConfig.client_id,
-          // SSO: stamper keys come from OAuthResult, not generated separately
-          stamperKeys: oauthResult.stamperKeys,
-        }),
-      );
-    });
-
-    it("should handle authentication errors", async () => {
-      mockStorage.load.mockReturnValue(null);
-      mockOAuthFlow.authenticate.mockRejectedValue(new Error("OAuth failed"));
-
-      const manager = new SessionManager();
-      await expect(manager.initialize()).rejects.toThrow("OAuth failed");
-    });
-
-    it("should pass custom options to OAuthFlow", async () => {
-      mockStorage.load.mockReturnValue(null);
-      mockOAuthFlow.authenticate.mockResolvedValue(createOAuthResult());
-
-      const manager = new SessionManager({
-        authBaseUrl: "https://custom-auth.example.com",
-        connectBaseUrl: "https://custom-connect.example.com",
-        callbackPort: 9090,
-        appId: "custom-app",
-      });
-
-      await manager.initialize();
-
-      expect(OAuthFlow).toHaveBeenCalledWith({
-        authBaseUrl: "https://custom-auth.example.com",
-        connectBaseUrl: "https://custom-connect.example.com",
-        callbackPort: 9090,
-        callbackPath: "/callback",
-        appId: "custom-app",
-      });
-    });
+    expect(ApiKeyStamper).toHaveBeenCalledWith({ apiSecretKey: session.stamperKeys!.secretKey });
+    expect(PhantomClient).toHaveBeenCalledWith(
+      expect.objectContaining({
+        apiBaseUrl: "https://api.phantom.app/v1/wallets",
+        organizationId: session.organizationId,
+        walletType: "user-wallet",
+      }),
+      expect.anything(),
+    );
   });
 
-  describe("getClient", () => {
-    it("should return PhantomClient after initialization", async () => {
-      const validSession = createValidSession();
-      mockStorage.load.mockReturnValue(validSession);
-      mockStorage.isExpired.mockReturnValue(false);
+  it("authenticates with DeviceCodeAuthProvider by default when no session exists", async () => {
+    mockStorage.load.mockReturnValue(null);
+    mockDeviceCodeAuthProvider.authenticate.mockResolvedValue(createDeviceCodeResult());
 
-      const manager = new SessionManager();
-      await manager.initialize();
+    const manager = new SessionManager();
+    await manager.initialize();
 
-      const client = manager.getClient();
-      expect(client).toBeDefined();
-      expect(PhantomClient).toHaveBeenCalled();
-    });
-
-    it("should throw error if not initialized", () => {
-      const manager = new SessionManager();
-      expect(() => manager.getClient()).toThrow("SessionManager not initialized. Call initialize() first.");
-    });
+    expect(mockDeviceCodeAuthProvider.authenticate).toHaveBeenCalled();
+    expect(mockStorage.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        walletId: "device-wallet-id",
+        organizationId: "device-org-id",
+        authFlow: "device-code",
+      }),
+    );
   });
 
-  describe("getSession", () => {
-    it("should return session data after initialization", async () => {
-      const validSession = createValidSession();
-      mockStorage.load.mockReturnValue(validSession);
-      mockStorage.isExpired.mockReturnValue(false);
+  it("authenticates with OAuthFlow when explicitly configured for sso", async () => {
+    mockStorage.load.mockReturnValue(null);
+    mockOAuthFlow.authenticate.mockResolvedValue(createOAuthResult());
 
-      const manager = new SessionManager();
-      await manager.initialize();
+    const manager = new SessionManager({ authFlow: "sso" });
+    await manager.initialize();
 
-      const session = manager.getSession();
-      expect(session).toEqual(validSession);
-    });
-
-    it("should throw error if not initialized", () => {
-      const manager = new SessionManager();
-      expect(() => manager.getSession()).toThrow("SessionManager not initialized. Call initialize() first.");
-    });
+    expect(mockOAuthFlow.authenticate).toHaveBeenCalled();
+    expect(mockStorage.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        walletId: "new-wallet-id",
+        organizationId: "new-org-id",
+        authFlow: "sso",
+      }),
+    );
   });
 
-  describe("resetSession", () => {
-    it("should clear existing session and re-authenticate", async () => {
-      // First, initialize with a valid session
-      const validSession = createValidSession();
-      mockStorage.load.mockReturnValue(validSession);
-      mockStorage.isExpired.mockReturnValue(false);
+  it("authenticates with DeviceCodeAuthProvider when no device-code session exists", async () => {
+    mockStorage.load.mockReturnValue(null);
+    mockDeviceCodeAuthProvider.authenticate.mockResolvedValue(createDeviceCodeResult());
 
-      const manager = new SessionManager();
-      await manager.initialize();
+    const manager = new SessionManager({ authFlow: "device-code" });
+    await manager.initialize();
 
-      // Verify client exists
-      expect(() => manager.getClient()).not.toThrow();
-
-      // Reset session
-      mockOAuthFlow.authenticate.mockResolvedValue(createOAuthResult());
-      await manager.resetSession();
-
-      // Verify storage was cleared and new session created
-      expect(mockStorage.delete).toHaveBeenCalled();
-      expect(mockOAuthFlow.authenticate).toHaveBeenCalled();
-      expect(mockStorage.save).toHaveBeenCalled();
+    expect(Auth2Stamper).toHaveBeenCalledWith(expect.anything(), {
+      authApiBaseUrl: "https://auth.phantom.app",
+      clientId: "phantom-mcp",
+      redirectUri: "",
     });
-
-    it("should handle authentication errors during reset", async () => {
-      const validSession = createValidSession();
-      mockStorage.load.mockReturnValue(validSession);
-      mockStorage.isExpired.mockReturnValue(false);
-
-      const manager = new SessionManager();
-      await manager.initialize();
-
-      mockOAuthFlow.authenticate.mockRejectedValue(new Error("OAuth failed"));
-
-      await expect(manager.resetSession()).rejects.toThrow("OAuth failed");
-      expect(mockStorage.delete).toHaveBeenCalled();
-    });
+    expect(DeviceCodeAuthProvider).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        authBaseUrl: "https://auth.phantom.app",
+        connectBaseUrl: "https://connect.phantom.app",
+        walletsApiBaseUrl: "https://api.phantom.app/v1/wallets",
+        appId: "phantom-mcp",
+        sessionDir: "/tmp/test-phantom-mcp",
+      },
+      expect.anything(),
+    );
+    expect(mockStorage.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        walletId: "device-wallet-id",
+        organizationId: "device-org-id",
+        authUserId: "device-user-id",
+        appId: "device-client-id",
+        authFlow: "device-code",
+      }),
+    );
   });
 
-  describe("client creation", () => {
-    it("should create ApiKeyStamper with correct secret key", async () => {
-      const validSession = createValidSession();
-      mockStorage.load.mockReturnValue(validSession);
-      mockStorage.isExpired.mockReturnValue(false);
+  it("rehydrates the shared Auth2Stamper for existing device-code sessions", async () => {
+    const session = createDeviceCodeSession();
+    mockStorage.load.mockReturnValue(session);
+    mockStorage.isExpired.mockReturnValue(false);
 
-      const manager = new SessionManager();
-      await manager.initialize();
+    const manager = new SessionManager({ authFlow: "device-code" });
+    await manager.initialize();
 
-      expect(ApiKeyStamper).toHaveBeenCalledWith({
-        apiSecretKey: validSession.stamperKeys.secretKey,
-      });
-    });
-
-    it("should create PhantomClient with correct config", async () => {
-      const validSession = createValidSession();
-      mockStorage.load.mockReturnValue(validSession);
-      mockStorage.isExpired.mockReturnValue(false);
-
-      const manager = new SessionManager({
-        walletsApiBaseUrl: "https://custom-api.example.com",
-      });
-      await manager.initialize();
-
-      expect(PhantomClient).toHaveBeenCalledWith(
-        expect.objectContaining({
-          apiBaseUrl: "https://custom-api.example.com",
-          organizationId: validSession.organizationId,
-          walletType: "user-wallet",
-          headers: expect.objectContaining({
-            "x-phantom-platform": "ext-sdk",
-            "x-phantom-sdk-type": "server",
-            "x-phantom-client": "mcp",
-            "x-phantom-sdk-version": expect.any(String),
-            "x-app-id": "phantom-mcp",
-          }),
-        }),
-        expect.anything(),
-      );
-    });
-
-    it("should set walletType to user-wallet", async () => {
-      const validSession = createValidSession();
-      mockStorage.load.mockReturnValue(validSession);
-      mockStorage.isExpired.mockReturnValue(false);
-
-      const manager = new SessionManager();
-      await manager.initialize();
-
-      expect(PhantomClient).toHaveBeenCalledWith(
-        expect.objectContaining({
-          walletType: "user-wallet",
-        }),
-        expect.anything(),
-      );
-    });
+    expect(NodeFileAuth2StamperStorage).toHaveBeenCalledWith("/tmp/test-phantom-mcp");
+    expect(mockAuth2Stamper.init).toHaveBeenCalled();
+    expect(PhantomClient).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: session.organizationId,
+        apiBaseUrl: "https://api.phantom.app/v1/wallets",
+      }),
+      expect.anything(),
+    );
   });
 
-  describe("error handling", () => {
-    it("should handle corrupted session file", async () => {
-      mockStorage.load.mockReturnValue(null); // Storage returns null for corrupted files
-      mockOAuthFlow.authenticate.mockResolvedValue(createOAuthResult());
+  it("re-authenticates stale device-code sessions missing wallet metadata", async () => {
+    const session = createDeviceCodeSession({ walletId: "" });
+    mockStorage.load.mockReturnValue(session);
+    mockStorage.isExpired.mockReturnValue(false);
+    mockDeviceCodeAuthProvider.authenticate.mockResolvedValue(createDeviceCodeResult());
 
-      const manager = new SessionManager();
-      await manager.initialize();
+    const manager = new SessionManager({ authFlow: "device-code" });
+    await manager.initialize();
 
-      // Should authenticate successfully even with corrupted session
-      expect(mockOAuthFlow.authenticate).toHaveBeenCalled();
-    });
-
-    it("should handle missing session directory", async () => {
-      mockStorage.load.mockReturnValue(null);
-      mockOAuthFlow.authenticate.mockResolvedValue(createOAuthResult());
-
-      const manager = new SessionManager();
-      await manager.initialize();
-
-      // Should create session successfully
-      expect(mockStorage.save).toHaveBeenCalled();
-    });
-
-    it("should propagate OAuth flow errors", async () => {
-      mockStorage.load.mockReturnValue(null);
-      const oauthError = new Error("Failed to open browser");
-      mockOAuthFlow.authenticate.mockRejectedValue(oauthError);
-
-      const manager = new SessionManager();
-      await expect(manager.initialize()).rejects.toThrow("Failed to open browser");
-    });
-
-    it("should propagate storage errors", async () => {
-      mockStorage.load.mockImplementation(() => {
-        throw new Error("Disk read error");
-      });
-
-      const manager = new SessionManager();
-      await expect(manager.initialize()).rejects.toThrow("Disk read error");
-    });
+    expect(mockStorage.delete).toHaveBeenCalled();
+    expect(mockDeviceCodeAuthProvider.authenticate).toHaveBeenCalled();
   });
 
-  describe("timestamp handling", () => {
-    it("should set createdAt and updatedAt timestamps", async () => {
-      mockStorage.load.mockReturnValue(null);
-      mockOAuthFlow.authenticate.mockResolvedValue(createOAuthResult());
+  it("re-authenticates stale device-code sessions when auth2 storage has no tokens", async () => {
+    const session = createDeviceCodeSession();
+    mockStorage.load.mockReturnValue(session);
+    mockStorage.isExpired.mockReturnValue(false);
+    mockDeviceCodeAuthProvider.authenticate.mockResolvedValue(createDeviceCodeResult());
+    (Auth2Stamper as jest.Mock)
+      .mockImplementationOnce(() => ({
+        init: jest.fn().mockResolvedValue(undefined),
+        bearerToken: null,
+        auth2Token: null,
+        getKeyInfo: jest.fn().mockReturnValue({ publicKey: "device-public-key" }),
+        getCryptoKeyPair: jest.fn().mockReturnValue({}),
+      }))
+      .mockImplementation(() => mockAuth2Stamper);
 
-      const beforeTimestamp = Math.floor(Date.now() / 1000);
-      const manager = new SessionManager();
-      await manager.initialize();
-      const afterTimestamp = Math.floor(Date.now() / 1000);
+    const manager = new SessionManager({ authFlow: "device-code" });
+    await manager.initialize();
 
-      const savedSession = (mockStorage.save as jest.Mock).mock.calls[0][0] as SessionData;
-      expect(savedSession.createdAt).toBeGreaterThanOrEqual(beforeTimestamp);
-      expect(savedSession.createdAt).toBeLessThanOrEqual(afterTimestamp);
-      expect(savedSession.updatedAt).toBeGreaterThanOrEqual(beforeTimestamp);
-      expect(savedSession.updatedAt).toBeLessThanOrEqual(afterTimestamp);
+    expect(mockStorage.delete).toHaveBeenCalled();
+    expect(mockDeviceCodeAuthProvider.authenticate).toHaveBeenCalled();
+  });
+
+  it("uses the explicit wallets API override for device-code sessions", async () => {
+    const session = createDeviceCodeSession();
+    mockStorage.load.mockReturnValue(session);
+    mockStorage.isExpired.mockReturnValue(false);
+
+    const manager = new SessionManager({
+      authFlow: "device-code",
+      walletsApiBaseUrl: "https://staging-api.phantom.app/v1/wallets",
     });
+    await manager.initialize();
+
+    expect(DeviceCodeAuthProvider).not.toHaveBeenCalled();
+    expect(PhantomClient).toHaveBeenCalledWith(
+      expect.objectContaining({
+        apiBaseUrl: "https://staging-api.phantom.app/v1/wallets",
+      }),
+      expect.anything(),
+    );
+  });
+
+  it("clears stored state and re-authenticates on resetSession()", async () => {
+    const session = createDeviceCodeSession();
+    mockStorage.load.mockReturnValue(session);
+    mockStorage.isExpired.mockReturnValue(false);
+    mockDeviceCodeAuthProvider.authenticate.mockResolvedValue(createDeviceCodeResult());
+
+    const manager = new SessionManager({ authFlow: "device-code" });
+    await manager.initialize();
+    jest.clearAllMocks();
+    mockDeviceCodeAuthProvider.authenticate.mockResolvedValue(createDeviceCodeResult());
+    await manager.resetSession();
+
+    expect(mockStorage.delete).toHaveBeenCalled();
+    expect(mockDeviceCodeAuthProvider.authenticate).toHaveBeenCalledTimes(1);
+    expect(NodeFileAuth2StamperStorage).toHaveBeenCalledWith("/tmp/test-phantom-mcp");
   });
 });

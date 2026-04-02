@@ -31,6 +31,8 @@ export type SolanaQuote = {
  * `transactionData` may be a single hex calldata string or a one-element array
  * (some providers return an array; both are supported).
  * `gas` may be absent for some providers — callers should fall back to eth_estimateGas.
+ * `allowanceTarget` is the spender address that needs ERC-20 approval before the swap.
+ * `approvalExactAmount` is the exact amount to approve (falls back to sellAmount if absent).
  */
 export type EvmSameChainQuote = {
   transactionData: string | string[];
@@ -39,6 +41,8 @@ export type EvmSameChainQuote = {
   gas?: number;
   sellAmount: string;
   buyAmount: string;
+  allowanceTarget?: string;
+  approvalExactAmount?: string;
 };
 
 /**
@@ -56,12 +60,16 @@ export type SolanaOriginCrossChainStep = {
  * Contains all fields needed to build and sign the EVM initiation transaction.
  * `gasCosts` may be absent for some bridge providers (e.g. deBridge) —
  * callers should fall back to eth_estimateGas when it is missing.
+ * `allowanceTarget` is the spender that needs ERC-20 approval before bridging.
+ * `approvalExactAmount` is the exact approval amount (falls back to quote sellAmount if absent).
  */
 export type EvmOriginCrossChainStep = {
   transactionData: string;
   exchangeAddress: string;
   value: string;
   gasCosts?: number[];
+  allowanceTarget?: string;
+  approvalExactAmount?: string;
   chainId: string;
   tool: StepTool;
 };

@@ -8,10 +8,12 @@
 
 import { PhantomClient } from "@phantom/client";
 import { ApiKeyStamper } from "@phantom/api-key-stamper";
+import { Auth2Stamper } from "@phantom/auth2";
 import { ANALYTICS_HEADERS, type ServerSdkHeaders } from "@phantom/constants";
 import { SessionStorage } from "./storage.js";
 import { OAuthFlow } from "../auth/oauth.js";
-import { DeviceFlowClient } from "../auth/device-flow.js";
+import { DeviceCodeAuthProvider } from "../auth/DeviceCodeAuthProvider.js";
+import { NodeFileAuth2StamperStorage } from "../auth/NodeFileAuth2StamperStorage.js";
 import type { SessionData } from "./types.js";
 import { Logger } from "../utils/logger.js";
 import * as packageJson from "../../package.json";
@@ -35,18 +37,11 @@ export interface SessionManagerOptions {
   /** Directory to store session data (default: ~/.phantom-mcp) */
   sessionDir?: string;
   /**
-   * Authentication flow to use (default: "sso" or PHANTOM_AUTH_FLOW env var).
-   * - "sso": Browser redirect + localhost callback (default)
+   * Authentication flow to use (default: "device-code" or PHANTOM_AUTH_FLOW env var).
+   * - "sso": Browser redirect + localhost callback
    * - "device-code": RFC 8628 device authorization — terminal display + polling
    */
   authFlow?: "sso" | "device-code";
-  /**
-   * Target environment (default: "production" or PHANTOM_ENV env var).
-   * Controls default auth and connect base URLs when not explicitly overridden.
-   * - "production": auth.phantom.app, connect.phantom.app
-   * - "staging": staging-auth.phantom.app, staging-connect.phantom.app
-   */
-  env?: "production" | "staging";
 }
 
 /**
@@ -96,31 +91,10 @@ export class SessionManager {
   constructor(options: SessionManagerOptions = {}) {
     this.logger = new Logger("SessionManager");
 
-    // Resolve env — options take precedence; then validate the raw env var so
-    // typos like PHANTOM_ENV=proudction are caught instead of silently ignored.
-    let resolvedEnv: "production" | "staging";
-    if (options.env !== undefined) {
-      resolvedEnv = options.env;
-    } else if (process.env.PHANTOM_ENV !== undefined) {
-      const rawEnv = process.env.PHANTOM_ENV.trim();
-      if (rawEnv !== "production" && rawEnv !== "staging") {
-        throw new Error(`Invalid PHANTOM_ENV: "${rawEnv}". Must be "production" or "staging".`);
-      }
-      resolvedEnv = rawEnv;
-    } else {
-      resolvedEnv = "production";
-    }
-    const isStaging = resolvedEnv === "staging";
-
-    this.authBaseUrl =
-      options.authBaseUrl ??
-      process.env.PHANTOM_AUTH_BASE_URL ??
-      (isStaging ? "https://staging-auth.phantom.app" : "https://auth.phantom.app");
+    this.authBaseUrl = options.authBaseUrl ?? process.env.PHANTOM_AUTH_BASE_URL ?? "https://auth.phantom.app";
 
     this.connectBaseUrl =
-      options.connectBaseUrl ??
-      process.env.PHANTOM_CONNECT_BASE_URL ??
-      (isStaging ? "https://staging-connect.phantom.app" : "https://connect.phantom.app");
+      options.connectBaseUrl ?? process.env.PHANTOM_CONNECT_BASE_URL ?? "https://connect.phantom.app";
 
     // Resolve authFlow — same pattern: options first, then validate raw env var.
     let resolvedAuthFlow: "sso" | "device-code";
@@ -133,13 +107,12 @@ export class SessionManager {
       }
       resolvedAuthFlow = rawAuthFlow;
     } else {
-      resolvedAuthFlow = "sso";
+      resolvedAuthFlow = "device-code";
     }
     this.authFlow = resolvedAuthFlow;
     this.walletsApiBaseUrl =
       options.walletsApiBaseUrl?.trim() ||
       process.env.PHANTOM_WALLETS_API_BASE_URL?.trim() ||
-      "" ||
       "https://api.phantom.app/v1/wallets";
 
     const defaultPort = 8080;
@@ -190,7 +163,7 @@ export class SessionManager {
     if (existingSession && !this.storage.isExpired(existingSession)) {
       this.logger.info("Loaded valid session from storage");
       this.session = existingSession;
-      this.createClient();
+      await this.createClient();
 
       // Step 2a: Validate the session is still accepted server-side.
       // A stored session can be revoked without the local file changing,
@@ -280,6 +253,7 @@ export class SessionManager {
 
     // Clear stored session
     this.storage.delete();
+    await this.clearDeviceCodeAuthState();
     this.session = null;
     this.client = null;
 
@@ -334,7 +308,7 @@ export class SessionManager {
 
     this.storage.save(this.session);
     this.logger.info("Session saved to storage");
-    this.createClient();
+    await this.createClient();
   }
 
   /**
@@ -343,12 +317,22 @@ export class SessionManager {
    * @throws Error if device flow fails
    */
   private async authenticateWithDeviceFlow(): Promise<void> {
-    const deviceFlow = new DeviceFlowClient({
-      authBaseUrl: this.authBaseUrl,
-      connectBaseUrl: this.connectBaseUrl,
-      appId: this.appId,
-      sessionDir: this.storage.sessionDir,
+    const stamper = new Auth2Stamper(new NodeFileAuth2StamperStorage(this.storage.sessionDir), {
+      authApiBaseUrl: this.authBaseUrl,
+      clientId: this.resolveAppId(),
+      redirectUri: "",
     });
+    const deviceFlow = new DeviceCodeAuthProvider(
+      stamper,
+      {
+        authBaseUrl: this.authBaseUrl,
+        connectBaseUrl: this.connectBaseUrl,
+        walletsApiBaseUrl: this.walletsApiBaseUrl,
+        appId: this.appId,
+        sessionDir: this.storage.sessionDir,
+      },
+      this.logger.child("DeviceCodeAuthProvider"),
+    );
 
     const result = await deviceFlow.authenticate();
     this.logger.info("Device authorization flow completed successfully");
@@ -358,57 +342,124 @@ export class SessionManager {
       walletId: result.walletId,
       organizationId: result.organizationId,
       authUserId: result.authUserId,
-      appId: result.clientConfig.client_id,
+      appId: result.appId,
       authFlow: "device-code",
-      stamperKeys: result.stamperKeys,
-      oauthTokens: result.oauthTokens,
       createdAt: now,
       updatedAt: now,
     };
 
     this.storage.save(this.session);
     this.logger.info("Session saved to storage");
-    this.createClient();
+    await this.createClient();
   }
 
   /**
-   * Creates a PhantomClient instance from the current session
-   * Steps:
-   * 1. Create ApiKeyStamper with session keypair
-   * 2. Create PhantomClient with stamper, organizationId, and app headers
-   * 3. Set walletType to 'user-wallet'
+   * Creates a PhantomClient instance from the current session.
    *
-   * @throws Error if session is not available
+   * - SSO sessions: PKI stamper (Ed25519 ApiKeyStamper)
+   * - Device-code sessions: storage-backed Auth2Stamper (P-256 OIDC) with session metadata
    */
-  private createClient(): void {
+  private async createClient(): Promise<void> {
     if (!this.session) {
       throw new Error("Cannot create client without session");
     }
 
     this.logger.info("Creating PhantomClient");
 
-    // Step 1: Create ApiKeyStamper with session keypair
+    if (this.session.authFlow === "device-code") {
+      if (!this.session.organizationId || !this.session.walletId) {
+        this.logger.warn(
+          "device-code session is missing org/wallet metadata — deleting stale session and re-authenticating",
+        );
+        this.storage.delete();
+        await this.clearDeviceCodeAuthState();
+        this.session = null;
+        this.client = null;
+        await this.authenticate();
+        return;
+      }
+      await this.createClientForDeviceFlow();
+    } else {
+      this.createClientForSso();
+    }
+
+    this.logger.info("PhantomClient created successfully");
+  }
+
+  /**
+   * SSO flow: PKI stamper using the Ed25519 keypair from the session.
+   */
+  private createClientForSso(): void {
+    if (!this.session?.stamperKeys) {
+      throw new Error("Cannot create SSO client without stamper keys");
+    }
     const stamper = new ApiKeyStamper({
-      apiSecretKey: this.session.stamperKeys.secretKey,
+      apiSecretKey: this.session!.stamperKeys.secretKey,
     });
 
-    // Step 2: Get client ID for X-App-Id header
-    const appId = this.session.appId || this.resolveAppId();
+    const appId = this.session!.appId || this.resolveAppId();
 
-    const headers = this.createMcpAnalyticsHeaders(appId);
-
-    // Step 3: Create PhantomClient with stamper, organizationId, and headers
     this.client = new PhantomClient(
       {
         apiBaseUrl: this.walletsApiBaseUrl,
-        organizationId: this.session.organizationId,
+        organizationId: this.session!.organizationId,
         walletType: "user-wallet",
-        headers,
+        headers: this.createMcpAnalyticsHeaders(appId),
         logger: this.logger,
       },
       stamper,
     );
+  }
 
-    this.logger.info("PhantomClient created successfully");
+  /**
+   * Device-code flow:
+   * 1. Rehydrate the storage-backed Auth2Stamper from the local auth2 file.
+   * 2. Require the session to already contain org/wallet metadata from the explicit auth step.
+   * 3. Create PhantomClient with the OIDC stamper.
+   */
+  private async createClientForDeviceFlow(): Promise<void> {
+    const session = this.session!;
+    const appId = session.appId || this.resolveAppId();
+
+    const stamper = new Auth2Stamper(new NodeFileAuth2StamperStorage(this.storage.sessionDir), {
+      authApiBaseUrl: this.authBaseUrl,
+      clientId: session.appId ?? appId,
+      redirectUri: "",
+    });
+    await stamper.init();
+    if (!stamper.bearerToken || !stamper.auth2Token) {
+      this.logger.warn(
+        "device-code auth2 stamper state is missing tokens — deleting stale session and re-authenticating",
+      );
+      this.storage.delete();
+      await this.clearDeviceCodeAuthState();
+      this.session = null;
+      this.client = null;
+      await this.authenticate();
+      return;
+    }
+
+    this.client = new PhantomClient(
+      {
+        apiBaseUrl: this.walletsApiBaseUrl,
+        organizationId: session.organizationId,
+        walletType: "user-wallet",
+        headers: this.createMcpAnalyticsHeaders(appId),
+        getHeaders: () => ({
+          authorization: stamper.bearerToken,
+          "x-auth-user-id": stamper.auth2Token?.sub,
+        }),
+        logger: this.logger,
+      },
+      stamper,
+    );
+  }
+
+  private async clearDeviceCodeAuthState(): Promise<void> {
+    try {
+      await new NodeFileAuth2StamperStorage(this.storage.sessionDir).clear();
+    } catch {
+      // Ignore auth2 storage cleanup errors during reset/reauth.
+    }
   }
 }

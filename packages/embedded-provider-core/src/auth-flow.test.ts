@@ -831,6 +831,32 @@ describe("EmbeddedProvider Auth Flows", () => {
       expect(mockClient.getWalletAddresses).toHaveBeenCalledWith("wallet-123", undefined, 0);
     });
 
+    it("should use live stamper auth headers over stored session auth values", async () => {
+      const completedSession = createCompletedSession({
+        authUserId: "stored-user-id",
+        bearerToken: "Bearer stored-token",
+      });
+      (mockStamper as any).bearerToken = "Bearer live-token";
+      (mockStamper as any).auth2Token = { sub: "live-user-id" };
+      mockStorage.getSession.mockResolvedValue(completedSession);
+      mockAuthProvider.resumeAuthFromRedirect.mockReturnValue(null);
+      mockClient.getWalletAddresses.mockResolvedValue([{ addressType: "solana", address: "test-address" }]);
+
+      await provider.autoConnect();
+
+      const phantomClientConfig = mockedPhantomClient.mock.calls.at(-1)?.[0];
+      expect(phantomClientConfig).toEqual(
+        expect.objectContaining({
+          organizationId: "org-123",
+          getHeaders: expect.any(Function),
+        }),
+      );
+      expect(phantomClientConfig?.getHeaders()).toEqual({
+        authorization: "Bearer live-token",
+        "x-auth-user-id": "live-user-id",
+      });
+    });
+
     it("should resume from redirect during autoConnect", async () => {
       const authResult: AuthResult = {
         walletId: "wallet-from-redirect-123",

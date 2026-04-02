@@ -1,5 +1,11 @@
 # @phantom/phantom-api-client
 
+## 1.0.0-beta.0
+
+### Major Changes
+
+- aa1450d: Auth 2.0 and DCR flow enabled
+
 ## 0.1.2
 
 ### Patch Changes

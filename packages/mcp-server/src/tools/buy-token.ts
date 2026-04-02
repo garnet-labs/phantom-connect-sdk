@@ -308,7 +308,7 @@ export const buyTokenTool: ToolHandler = {
       buyAmount: exactOut ? amountBaseUnits.toString() : undefined,
       exactOut,
       slippageTolerance: typeof params.slippageTolerance === "number" ? params.slippageTolerance : undefined,
-      autoSlippage: typeof params.autoSlippage === "boolean" ? params.autoSlippage : undefined,
+      autoSlippage: typeof params.autoSlippage === "boolean" ? params.autoSlippage : true,
       base64EncodedTx: typeof params.base64EncodedTx === "boolean" ? params.base64EncodedTx : undefined,
       apiClient: context.apiClient,
       logger,
@@ -336,6 +336,7 @@ export const buyTokenTool: ToolHandler = {
       base64EncodedTx: typeof params.base64EncodedTx === "boolean" ? params.base64EncodedTx : undefined,
       client: context.client,
       logger,
+      sellTokenAddress: isSellEvm && !sellTokenIsNative ? sellTokenMint : undefined,
     });
 
     return {

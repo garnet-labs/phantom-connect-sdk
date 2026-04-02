@@ -39,17 +39,10 @@ export interface SessionData {
   appId?: string;
   /** Auth flow used to create this session */
   authFlow?: "sso" | "device-code";
-  stamperKeys: {
+  /** SSO flow uses API key stamper keys; device-code uses separate auth2 stamper storage */
+  stamperKeys?: {
     publicKey: string;
     secretKey: string;
-  };
-  /** OAuth tokens — only present for device-code flow sessions */
-  oauthTokens?: {
-    accessToken: string;
-    refreshToken: string;
-    idToken?: string;
-    /** Unix timestamp when the access token expires */
-    expiresAt: number;
   };
   createdAt: number;
   updatedAt: number;

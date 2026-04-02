@@ -267,6 +267,7 @@ interface PhantomSDKConfig {
   authOptions?: {
     authUrl?: string; // Custom auth URL (optional)
     redirectUrl?: string; // Custom redirect URL (optional)
+    authApiBaseUrl?: string; // Custom OAuth URL (optional)
   };
 }
 ```

@@ -63,6 +63,7 @@ describe("BrowserSDK", () => {
         apiBaseUrl: "https://api.phantom.app/v1/wallets",
         appId: "app-123",
         authOptions: {
+          authApiBaseUrl: "https://auth.phantom.app",
           authUrl: "https://auth.phantom.com",
           redirectUrl: "https://localhost:3000/",
         },
@@ -90,6 +91,7 @@ describe("BrowserSDK", () => {
         apiBaseUrl: "https://api.phantom.app/v1/wallets",
         appId: "app-123",
         authOptions: {
+          authApiBaseUrl: "https://auth.phantom.app",
           authUrl: "https://auth.phantom.com",
           redirectUrl: "https://localhost:3000/",
         },

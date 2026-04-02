@@ -19,8 +19,9 @@ export function phantomConnector() {
         apiBaseUrl: "https://staging-api.phantom.app/v1/wallets",
 
         authOptions: {
-          authUrl: "https://staging-connect.phantom.app/login",
+          authUrl: "https://staging-connect.phantom.app/login/start",
           redirectUrl: `${window.location.origin}/auth-callback`,
+          authApiBaseUrl: "https://staging-auth.phantom.app",
         },
         embeddedWalletType: "user-wallet",
         addressTypes: [AddressType.ethereum], // Only need Ethereum for wagmi

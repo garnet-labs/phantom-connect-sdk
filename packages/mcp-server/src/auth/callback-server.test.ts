@@ -14,11 +14,10 @@ describe("CallbackServer", () => {
 
   afterEach(async () => {
     jest.restoreAllMocks();
-    // Clean up any lingering servers
+    // Wait for async server.close() callbacks to settle.
     if (server) {
       try {
-        // Give time for server cleanup
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await server.waitForClosed();
       } catch {
         // Ignore cleanup errors
       }

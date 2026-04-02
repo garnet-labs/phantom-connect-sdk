@@ -114,6 +114,25 @@ export class PhantomClient {
       });
     }
 
+    // Log all API responses
+    this.axiosInstance.interceptors.response.use(
+      response => {
+        this.logger?.debug(
+          `API response: method=${response.config.method?.toUpperCase()} url=${response.config.url} status=${response.status} body=${JSON.stringify(response.data)}`,
+        );
+        return response;
+      },
+      error => {
+        const status = error.response?.status;
+        const url = error.config?.url;
+        const method = error.config?.method?.toUpperCase();
+        this.logger?.error(
+          `API error response: method=${method} url=${url} status=${status} body=${JSON.stringify(error.response?.data)}`,
+        );
+        return Promise.reject(error);
+      },
+    );
+
     // If stamper is provided, add it as an interceptor
     if (stamper) {
       // Add stamper interceptor to axios instance
@@ -142,9 +161,16 @@ export class PhantomClient {
   /**
    * Gets the authenticator public key from the stamper if available.
    * Returns undefined if the stamper doesn't support key info retrieval.
+   *
+   * OIDC/Auth2 stampers (device-code flow) are excluded: their P-256 key is
+   * not a KMS Keypair authenticator — it is only used for OIDC stamp signing —
+   * so sending it as authenticatorPublicKey would cause a 400 (wrong key size).
    */
   private getAuthenticatorPublicKey(): string | undefined {
     if (!this.stamper) {
+      return undefined;
+    }
+    if (this.stamper.type === "OIDC") {
       return undefined;
     }
     if ("getKeyInfo" in this.stamper && typeof this.stamper.getKeyInfo === "function") {
@@ -971,6 +997,16 @@ export class PhantomClient {
     // Add the stamp header
     config.headers = config.headers || {};
     config.headers["X-Phantom-Stamp"] = stamp;
+
+    const dynamicHeaders = this.config.getHeaders?.();
+    if (dynamicHeaders) {
+      for (const [headerName, headerValue] of Object.entries(dynamicHeaders)) {
+        if (typeof headerValue === "string" && headerValue) {
+          config.headers[headerName] = headerValue;
+        }
+      }
+    }
+
     return config;
   }
 }

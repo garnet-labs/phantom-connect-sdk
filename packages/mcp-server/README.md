@@ -8,14 +8,16 @@
 >
 > **Phantom makes no guarantees whatsoever around anything your agent may do using this MCP server.** Use at your own risk.
 
-An MCP (Model Context Protocol) server that provides LLMs like Claude with direct access to Phantom wallet operations. This enables AI assistants to interact with embedded wallets, view addresses, sign and send transactions, and sign messages across Solana and EVM chains through natural language interactions.
+An MCP (Model Context Protocol) server that provides LLMs like Claude with direct access to Phantom wallet operations. This enables AI assistants to interact with embedded wallets, view addresses, simulate transactions, check token approvals, sign and send transactions, and sign messages across Solana and EVM chains through natural language interactions.
 
 ## Features
 
-- **SSO Authentication**: Seamless integration with Phantom's embedded wallet SSO flow (Google/Apple login)
+- **Device-code Authentication**: Browser-based Phantom sign-in with device authorization by default
 - **Session Persistence**: Automatic session management with stamper keys stored in `~/.phantom-mcp/session.json`
 - **Auto Re-authentication**: On session expiry (401/403), the server automatically triggers re-auth and retries the tool call
 - **Multi-Chain Support**: Solana and EVM chains (Ethereum, Base, Polygon, Arbitrum, and more)
+- **Simulation-First Safety Flows**: `send_solana_transaction`, `send_evm_transaction`, and `transfer_tokens` can preview expected changes before submitting
+- **Token Approval Checks**: `get_token_allowance` lets agents determine when an ERC-20 approval is required before an EVM swap or contract interaction
 - **Chain-Specific Tools** (mirrors the browser-sdk API pattern):
   - `get_connection_status` - Lightweight local check of wallet connection state (no API call)
   - `get_wallet_addresses` - Get Solana, Ethereum, Bitcoin, and Sui addresses for the authenticated wallet
@@ -25,8 +27,10 @@ An MCP (Model Context Protocol) server that provides LLMs like Claude with direc
   - `sign_solana_message` - Sign a UTF-8 message on Solana
   - `sign_evm_personal_message` - Sign a UTF-8 message via EIP-191 personal_sign on any EVM network
   - `sign_evm_typed_data` - Sign EIP-712 typed structured data (DeFi permits, order signing)
+  - `get_token_allowance` - Check the ERC-20 allowance granted by an owner to a spender on any EVM chain
   - `transfer_tokens` - Transfer native tokens or fungible tokens on Solana and EVM chains (builds, signs, and sends)
   - `buy_token` - Fetch a swap quote from Phantom's routing engine for Solana, EVM, and cross-chain swaps (optionally executes)
+  - `simulate_transaction` - Preview expected asset changes, warnings, and blocks for a transaction without submitting it on-chain
 - **Perpetuals Trading** (Hyperliquid via Phantom backend — see [PERPS.md](./PERPS.md) for full docs):
   - `deposit_to_hyperliquid` - Bridge tokens from Solana/EVM into Hyperliquid perp account (full flow)
   - `get_perp_account` - Perp account balance and available margin
@@ -65,27 +69,6 @@ Then run:
 phantom-mcp
 ```
 
-## Getting Your App ID
-
-**Important:** Before you can use the MCP server, you must obtain an App ID from the Phantom Portal. This is required for the early release.
-
-### Steps to Get Your App ID:
-
-1. **Visit the Phantom Portal**: Go to [phantom.com/portal](https://phantom.com/portal)
-2. **Sign in**: Use your Gmail or Apple account to sign in
-3. **Create an App**: Click "Create App" and fill in the required details
-4. **Configure Redirect URL**:
-   - Navigate to Dashboard → View App → Redirect URLs
-   - Add `http://localhost:8080/callback` as a redirect URL
-   - This allows the OAuth callback to work correctly
-5. **Get Your App ID**: Navigate to the "Phantom Connect" tab to find your App ID
-   - Your app is automatically approved for development use
-   - Copy the App ID for use in the MCP server configuration
-
-**Important Note:** The email you use to sign in to the Phantom Portal **must match** the email you use when authenticating in the MCP server. If these don't match, authentication will fail.
-
-Once you have your App ID, you can proceed with the configuration below.
-
 ## Usage
 
 ### Claude Desktop Configuration
@@ -104,10 +87,7 @@ Add the MCP server to your Claude Desktop configuration file:
   "mcpServers": {
     "phantom": {
       "command": "npx",
-      "args": ["-y", "@phantom/mcp-server"],
-      "env": {
-        "PHANTOM_APP_ID": "your_app_id_from_portal"
-      }
+      "args": ["-y", "@phantom/mcp-server"]
     }
   }
 }
@@ -119,10 +99,7 @@ Add the MCP server to your Claude Desktop configuration file:
 {
   "mcpServers": {
     "phantom": {
-      "command": "phantom-mcp",
-      "env": {
-        "PHANTOM_APP_ID": "your_app_id_from_portal"
-      }
+      "command": "phantom-mcp"
     }
   }
 }
@@ -132,67 +109,44 @@ After updating the config, restart Claude Desktop to load the server.
 
 ### Environment Variables
 
-Configure the server behavior using environment variables:
+Most users do not need to set any environment variables.
 
-**App ID / OAuth Client Credentials:**
+Optional runtime configuration:
 
-```bash
-PHANTOM_APP_ID=your_app_id                    # Required (App ID from Phantom Portal)
-# OR
-PHANTOM_CLIENT_ID=your_client_id              # Alternative to PHANTOM_APP_ID
-
-PHANTOM_CLIENT_SECRET=your_client_secret      # Optional (for confidential clients)
-```
-
-**Client Types:**
-
-- **Public client** (recommended): Provide only `PHANTOM_APP_ID` (or `PHANTOM_CLIENT_ID`). Uses PKCE for security, similar to browser SDK.
-- **Confidential client**: Provide both `PHANTOM_APP_ID` and `PHANTOM_CLIENT_SECRET`. Uses HTTP Basic Auth + PKCE.
-
-**Note:** You must obtain your App ID from the [Phantom Portal](https://phantom.com/portal) before using the MCP server. See the "Getting Your App ID" section above for detailed instructions. Both `PHANTOM_APP_ID` and `PHANTOM_CLIENT_ID` are supported for backwards compatibility.
-
-**Advanced Configuration (Optional):**
-
-Most users won't need to change these settings. Available options:
-
-- `PHANTOM_CALLBACK_PORT` - OAuth callback port (default: `8080`)
-- `PHANTOM_CALLBACK_PATH` - OAuth callback path (default: `/callback`)
-- `PHANTOM_MCP_DEBUG` - Enable debug logging (set to `1`)
-
-**In Claude Desktop:**
-
-```json
-{
-  "mcpServers": {
-    "phantom": {
-      "command": "npx",
-      "args": ["-y", "@phantom/mcp-server"],
-      "env": {
-        "PHANTOM_APP_ID": "your_app_id_from_portal",
-        "PHANTOM_CLIENT_SECRET": "your_client_secret"
-      }
-    }
-  }
-}
-```
+- `PHANTOM_AUTH_BASE_URL` - Override the Phantom auth base URL
+- `PHANTOM_CONNECT_BASE_URL` - Override the Phantom Connect base URL
+- `PHANTOM_WALLETS_API_BASE_URL` - Override the Phantom wallets/KMS API base URL
+- `PHANTOM_API_BASE_URL` - Override the Phantom API base URL used by tool calls
+- `PHANTOM_VERSION` - Override the version header sent with requests
+- `PHANTOM_MCP_DEBUG` - Enable debug logging (set to `1` or `true`)
 
 ### Authentication Flow
 
 On first run, the server will:
 
-1. **App ID**: Use App ID from `PHANTOM_APP_ID` (or `PHANTOM_CLIENT_ID`) environment variable
-2. **Browser Authentication**: Open your default browser to `https://connect.phantom.app` for Google/Apple login
-   - **Important**: Use the same email address that you used to sign in to the Phantom Portal
-3. **SSO Callback**: Start a local server on port 8080 to receive the SSO callback
-4. **Session Storage**: Save your session (including wallet ID, organization ID, and stamper keys) to `~/.phantom-mcp/session.json`
+1. **Device-code authentication**: By default, start Phantom's device authorization flow
+2. **Browser sign-in**: Open your default browser so you can sign in with Google or Apple and approve the wallet session
+3. **Session storage**: Save your session to `~/.phantom-mcp/session.json`
 
 The session file is secured with restrictive permissions (0o600) and contains:
 
 - Wallet and organization identifiers
-- Stamper keypair (public key registered with auth server, secret key for signing API requests)
+- Authentication/session metadata used for subsequent wallet operations
 - User authentication details
 
-Sessions use stamper keys which don't expire. The embedded wallet is created during SSO authentication and persists across sessions.
+Sessions persist across restarts until they are deleted or rejected server-side, at which point the MCP server automatically triggers re-authentication.
+
+## Migrating
+
+If you previously used `@phantom/mcp-server` version `0.2.4` or earlier, the wallet model has changed.
+
+In older versions, connecting the MCP server connected the agent to your existing user wallet.
+
+In current versions, agents receive a new wallet when they authenticate. That means:
+
+- Existing prompts or workflows that assumed access to your personal wallet may no longer behave the same way.
+- Newly authenticated agents must be funded before they can transfer tokens, swap, or perform other on-chain actions.
+- You should check the current wallet address with `get_wallet_addresses` after authenticating and fund that wallet before attempting transactions.
 
 ### Manual Testing
 
@@ -353,7 +307,9 @@ To extract the mint address of an SPL token from `caip19`, take the part after `
 
 Signs and broadcasts a Solana transaction. Accepts a standard base64-encoded serialized transaction — the same format used by the Solana JSON-RPC API and returned by DeFi APIs (Jupiter, Phantom swap, etc.).
 
-Mirrors `sdk.solana.signAndSendTransaction(tx)` from the browser-sdk.
+**Two-step safety flow:** By default (omitting `confirmed`), the tool runs a simulation via Phantom's transaction simulation service and returns the expected asset changes and any warnings — without broadcasting anything. The agent should present these results to the user and ask for confirmation before proceeding. Pass `confirmed: true` on the second call to actually sign and send.
+
+If you want to skip simulation and execute immediately, pass `confirmed: true` on the first call — but prefer the two-step flow for user safety.
 
 **Parameters:**
 
@@ -361,8 +317,9 @@ Mirrors `sdk.solana.signAndSendTransaction(tx)` from the browser-sdk.
 - `networkId` (optional, string): Solana network (e.g., `"solana:mainnet"`, `"solana:devnet"`). Defaults to `"solana:mainnet"`.
 - `walletId` (optional, string): Wallet ID to use (defaults to authenticated wallet)
 - `derivationIndex` (optional, number): Derivation index (default: 0)
+- `confirmed` (optional, boolean): Set to `true` only after the user has reviewed and approved the simulation. Omit on the first call to get a preview without submitting.
 
-**Example:**
+**Step 1 — simulate (omit `confirmed`):**
 
 ```json
 {
@@ -370,7 +327,31 @@ Mirrors `sdk.solana.signAndSendTransaction(tx)` from the browser-sdk.
 }
 ```
 
-**Response:**
+**Step 1 response:**
+
+```json
+{
+  "status": "pending_confirmation",
+  "simulation": {
+    "expectedChanges": [{ "type": "AssetChange", "changeSign": "MINUS", "changeText": "-0.5 SOL" }],
+    "warnings": [],
+    "block": null
+  }
+}
+```
+
+If simulation fails, the tool still returns `"status": "pending_confirmation"` with `"simulation": null`.
+
+**Step 2 — execute (after user approves):**
+
+```json
+{
+  "transaction": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAQABAgME...",
+  "confirmed": true
+}
+```
+
+**Step 2 response:**
 
 ```json
 {
@@ -385,6 +366,10 @@ Mirrors `sdk.solana.signAndSendTransaction(tx)` from the browser-sdk.
 ### 5. send_evm_transaction
 
 Signs and broadcasts an EVM transaction using the standard `eth_sendTransaction` format. Pass in the transaction fields you know; `nonce`, `gas`, and `gasPrice` are optional — the server fetches any missing values from the network automatically via the RPC endpoint.
+
+**Two-step safety flow:** By default (omitting `confirmed`), the tool runs a simulation via Phantom's transaction simulation service and returns the expected asset changes and any warnings — without broadcasting anything. The agent should present these results to the user and ask for confirmation before proceeding. Pass `confirmed: true` on the second call to actually sign and send.
+
+If you want to skip simulation and execute immediately, pass `confirmed: true` on the first call — but prefer the two-step flow for user safety.
 
 Use `chainId` (a plain number) to identify the network — this matches the `chainId` field returned directly by DeFi aggregators like LI.FI and 1inch. Built-in public RPC defaults for Ethereum mainnet, Base, Polygon, Arbitrum, and testnets; pass `rpcUrl` to override.
 
@@ -403,8 +388,9 @@ Use `chainId` (a plain number) to identify the network — this matches the `cha
 - `walletId` (optional, string): Wallet ID to use (defaults to authenticated wallet)
 - `derivationIndex` (optional, number): Derivation index (default: 0)
 - `rpcUrl` (optional, string): Custom RPC endpoint. See default RPC table below.
+- `confirmed` (optional, boolean): Set to `true` only after the user has reviewed and approved the simulation. Omit on the first call to get a preview without submitting.
 
-**Example — plain ETH transfer (nonce, gas, and gasPrice auto-fetched):**
+**Step 1 — simulate (omit `confirmed`):**
 
 ```json
 {
@@ -414,31 +400,33 @@ Use `chainId` (a plain number) to identify the network — this matches the `cha
 }
 ```
 
-**Example — EIP-1559 transaction on Base:**
+**Step 1 response:**
 
 ```json
 {
-  "chainId": 8453,
-  "to": "0x742d35Cc6634C0532925a3b8D4C8db86fB5C4A7E",
-  "value": "0xDE0B6B3A7640000",
-  "maxFeePerGas": "0x6FC23AC00",
-  "maxPriorityFeePerGas": "0x77359400"
+  "status": "pending_confirmation",
+  "simulation": {
+    "expectedChanges": [{ "type": "AssetChange", "changeSign": "MINUS", "changeText": "-0.001 ETH" }],
+    "warnings": [],
+    "block": null
+  }
 }
 ```
 
-**Example — contract call with explicit gas (e.g. from a LI.FI quote):**
+If simulation fails, the tool still returns `"status": "pending_confirmation"` with `"simulation": null`.
+
+**Step 2 — execute (after user approves):**
 
 ```json
 {
   "chainId": 1,
-  "to": "0xContractAddress",
-  "data": "0xa9059cbb000000000000000000000000...",
-  "gas": "0x186A0",
-  "gasPrice": "0x4A817C800"
+  "to": "0x742d35Cc6634C0532925a3b8D4C8db86fB5C4A7E",
+  "value": "0x38D7EA4C68000",
+  "confirmed": true
 }
 ```
 
-**Response:**
+**Step 2 response:**
 
 ```json
 {
@@ -446,6 +434,19 @@ Use `chainId` (a plain number) to identify the network — this matches the `cha
   "networkId": "eip155:1",
   "from": "0x8d8b06e017944f5951418b1182d119a376efb39d",
   "to": "0x742d35Cc6634C0532925a3b8D4C8db86fB5C4A7E"
+}
+```
+
+**Other examples:**
+
+```json
+{
+  "chainId": 8453,
+  "to": "0x...",
+  "value": "0xDE0B6B3A7640000",
+  "maxFeePerGas": "0x6FC23AC00",
+  "maxPriorityFeePerGas": "0x77359400",
+  "confirmed": true
 }
 ```
 
@@ -601,9 +602,48 @@ Mirrors `sdk.ethereum.signTypedData(typedData, address)` from the browser-sdk.
 
 ---
 
-### 9. transfer_tokens
+### 9. get_token_allowance
 
-Transfers native tokens or fungible tokens on Solana and EVM chains. Builds, signs, and sends the transaction immediately.
+Returns the ERC-20 token allowance granted by an owner address to a spender address on any supported EVM chain. Use this before a swap to check whether an `approve()` transaction is needed. When `ownerAddress` is omitted, the authenticated wallet address is used automatically.
+
+**Parameters:**
+
+- `chainId` (required, number | string): EVM chain ID (e.g. `8453` for Base, `1` for Ethereum, `137` for Polygon). Accepts a number, decimal string, or hex string (e.g. `"0x2105"`).
+- `tokenAddress` (required, string): ERC-20 token contract address (0x-prefixed).
+- `spenderAddress` (required, string): Address of the spender to check allowance for (e.g. a swap router or bridge contract).
+- `ownerAddress` (optional, string): Address of the token owner. Defaults to the authenticated wallet address.
+- `walletId` (optional, string): Wallet ID (defaults to authenticated wallet). Only used when `ownerAddress` is omitted.
+- `derivationIndex` (optional, integer): Derivation index (default: 0). Only used when `ownerAddress` is omitted.
+- `rpcUrl` (optional, string): Custom RPC URL override.
+
+**Example:**
+
+```json
+{
+  "chainId": 8453,
+  "tokenAddress": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+  "spenderAddress": "0x0000000000001ff3684f28c67538d4d072c22734"
+}
+```
+
+**Response:**
+
+```json
+{
+  "chainId": 8453,
+  "tokenAddress": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+  "ownerAddress": "0xee8a534eacb5f81dbd8ad163125dfe5f496b0278",
+  "spenderAddress": "0x0000000000001ff3684f28c67538d4d072c22734",
+  "allowance": "2066891",
+  "allowanceHex": "0x1f91cb"
+}
+```
+
+---
+
+### 10. transfer_tokens
+
+Transfers native tokens or fungible tokens on Solana and EVM chains. This tool uses a two-step flow by default: first simulate and preview, then send only after explicit approval.
 
 **Parameters:**
 
@@ -617,6 +657,7 @@ Transfers native tokens or fungible tokens on Solana and EVM chains. Builds, sig
 - `derivationIndex` (optional, number): Derivation index (default: 0)
 - `rpcUrl` (optional, string): RPC URL override (Solana or EVM)
 - `createAssociatedTokenAccount` (optional, boolean): Solana only — create destination ATA if missing (default: `true`)
+- `confirmed` (optional, boolean): Set to `true` only after the user has reviewed and approved the simulation. Omit on the first call to get a preview without submitting.
 
 **Example — SOL transfer:**
 
@@ -653,7 +694,22 @@ Transfers native tokens or fungible tokens on Solana and EVM chains. Builds, sig
 }
 ```
 
-**Response:**
+**Step 1 — simulate (omit `confirmed`):**
+
+```json
+{
+  "status": "pending_confirmation",
+  "simulation": {
+    "expectedChanges": [],
+    "warnings": [],
+    "block": null
+  }
+}
+```
+
+If `simulation.block` is present, do not proceed until the blocking issue is resolved.
+
+**Step 2 — execute (after user approves):**
 
 ```json
 {
@@ -667,9 +723,11 @@ Transfers native tokens or fungible tokens on Solana and EVM chains. Builds, sig
 }
 ```
 
+For EVM token transfers to contracts and swap flows, use `get_token_allowance` first when you need to know whether an ERC-20 `approve()` transaction is required.
+
 ---
 
-### 10. buy_token
+### 11. buy_token
 
 Fetches an optimized swap quote from Phantom's routing engine. Supports same-chain Solana, same-chain EVM, and cross-chain swaps between Solana and EVM chains. Optionally signs and sends the first quote transaction immediately.
 
@@ -794,6 +852,31 @@ The steps array inside `quoteResponse.quotes[0].steps` describes the full bridge
 }
 ```
 
+For EVM swaps, use `get_token_allowance` before execution when you need to determine whether the sell token requires an ERC-20 approval. Quote responses may also include `requiredApprovals` on swap steps when relevant.
+
+---
+
+### 12. simulate_transaction
+
+Simulates a transaction and returns expected asset changes, security warnings, and blocking conditions — without submitting it on-chain. Use this to preview what a transaction will do before signing or sending. Supports Solana, EVM (Ethereum, Base, Polygon, Arbitrum, Monad), Sui, and Bitcoin. Built on top of Phantom's transaction simulation service.
+
+**Parameters:**
+
+- `chainId` (required, string): CAIP-2 chain ID. Examples: `"solana:mainnet"`, `"eip155:1"` (Ethereum), `"eip155:8453"` (Base), `"eip155:137"` (Polygon), `"eip155:42161"` (Arbitrum), `"sui:mainnet"`, `"bip122:000000000019d6689c085ae165831e93"` (Bitcoin)
+- `type` (required, string): `"transaction"` or `"message"`
+- `params` (required, object): Chain-specific transaction parameters:
+  - **Solana**: `{ "transactions": ["<base58_tx>"], "method"?: "signAndSendTransaction", "simulatorConfig"?: { "decodeAccounts"?: true, "decodeInstructions"?: true } }`
+  - **EVM**: `{ "transactions": [{ "from": "0x...", "to": "0x...", "value": "0x...", "data": "0x...", "chainId": "0x1", "type": "0x2" }] }`
+  - **Sui**: `{ "rawTransaction": "<raw_bytes>" }`
+  - **Bitcoin**: `{ "transaction": "<raw_tx>", "userAddresses"?: ["bc1q..."] }`
+  - **EVM message**: `{ "message": "0x..." }`
+- `url` (optional, string): dApp origin URL (e.g. `"https://jup.ag"`)
+- `context` (optional, string): `"swap"` | `"bridge"` | `"send"` | `"gaslessSwap"`
+- `userAccount` (optional, string): Wallet address for the simulation. Auto-derived from the authenticated session for Solana and EVM; supply explicitly for Sui and Bitcoin if needed.
+- `language` (optional, string): Response language code (default: `"en"`). Supports `"es"`, `"ja"`, and others.
+- `derivationIndex` (optional, number): HD derivation index for address lookup (default: `0`)
+- `walletId` (optional, string): Override the wallet ID (defaults to the authenticated wallet)
+
 ---
 
 ### Perpetuals Tools (Hyperliquid)
@@ -850,9 +933,7 @@ Sessions are stored in `~/.phantom-mcp/session.json` with the following security
 
 **Session persistence:**
 
-- Sessions use stamper keypair authentication stored locally in `~/.phantom-mcp/session.json`
-- Stamper public key is registered with the auth server during SSO
-- Stamper secret key is used to sign all API requests
+- Sessions are stored locally in `~/.phantom-mcp/session.json`
 - If the server rejects the session (401/403), the MCP server automatically triggers re-authentication and retries the tool call
 - Sessions persist until explicitly deleted or revoked server-side
 
@@ -866,17 +947,14 @@ Sessions are stored in `~/.phantom-mcp/session.json` with the following security
 
 ## Security
 
-### OAuth Flow Security
+### Authentication Security
 
-- Uses PKCE (Proof Key for Code Exchange) for secure OAuth authentication
-- App IDs are pre-registered through the Phantom Portal
-- Session ID validation prevents replay attacks
-- Callback server uses ephemeral localhost binding
+- Device-code authentication is the default flow
+- Session ID validation prevents replay attacks where applicable
 
 ### Session Security
 
 - Session files have restrictive Unix permissions (user-only read/write)
-- API keys are generated using cryptographically secure random sources
 - Tokens are encrypted in transit (HTTPS)
 - No plaintext credentials are stored
 
@@ -890,35 +968,13 @@ Sessions are stored in `~/.phantom-mcp/session.json` with the following security
 
 ### Browser Doesn't Open
 
-**Problem:** The OAuth flow tries to open your browser but fails.
+**Problem:** The authentication flow tries to open your browser but fails.
 
 **Solutions:**
 
 - Ensure you have a default browser configured
 - Manually visit the URL shown in the logs
 - Check if the `open` command works in your terminal: `open https://phantom.app`
-
-### Port 8080 Already in Use
-
-**Problem:** Cannot bind OAuth callback server to port 8080.
-
-**Error:** `EADDRINUSE: address already in use :::8080`
-
-**Solutions:**
-
-- Stop the process using port 8080: `lsof -ti:8080 | xargs kill`
-- Change the callback port: Set `PHANTOM_CALLBACK_PORT` environment variable to a different port
-
-### Authentication Email Mismatch
-
-**Problem:** Authentication fails or you can't access your wallet.
-
-**Solution:** Ensure you're using the **same email address** for both:
-
-- Signing in to the Phantom Portal (where you created your app)
-- Authenticating in the MCP server (Google/Apple login)
-
-If the emails don't match, authentication will fail.
 
 ### Session Not Persisting
 
@@ -950,7 +1006,7 @@ If the emails don't match, authentication will fail.
 
 **Solutions:**
 
-- The OAuth callback server waits 5 minutes by default
+- Complete the browser approval flow promptly
 - Complete the authentication flow promptly
 - If timeout occurs, restart Claude Desktop to retry
 
@@ -960,8 +1016,6 @@ If the emails don't match, authentication will fail.
 
 **Solutions:**
 
-- Verify your App ID is correct (check the Phantom Portal)
-- Ensure the email used for authentication matches the Portal email
 - Delete session file: `rm ~/.phantom-mcp/session.json`
 - Restart Claude Desktop
 - Re-authenticate when prompted
@@ -1029,31 +1083,20 @@ This package is part of the [Phantom Connect SDK](https://github.com/phantom/pha
 
 All environment variables recognized by the MCP server, grouped by purpose:
 
-#### Authentication (required)
-
-| Variable                | Default | Description                                                                                               |
-| ----------------------- | ------- | --------------------------------------------------------------------------------------------------------- |
-| `PHANTOM_APP_ID`        | —       | App ID from the [Phantom Portal](https://phantom.com/portal). Required unless `PHANTOM_CLIENT_ID` is set. |
-| `PHANTOM_CLIENT_ID`     | —       | Alias for `PHANTOM_APP_ID` (backwards compatibility).                                                     |
-| `PHANTOM_CLIENT_SECRET` | —       | Client secret for confidential OAuth clients. Omit for public clients (PKCE-only).                        |
-
-#### OAuth / Auth URLs
+#### Auth / URLs
 
 | Variable                       | Default                              | Description                                                                   |
 | ------------------------------ | ------------------------------------ | ----------------------------------------------------------------------------- |
 | `PHANTOM_AUTH_BASE_URL`        | `https://auth.phantom.app`           | Base URL for the Phantom auth service (token exchange, DCR).                  |
-| `PHANTOM_CONNECT_BASE_URL`     | `https://connect.phantom.app`        | Base URL for the Phantom Connect SSO page (browser redirect).                 |
+| `PHANTOM_CONNECT_BASE_URL`     | `https://connect.phantom.app`        | Base URL for Phantom Connect and browser-based authentication pages.          |
 | `PHANTOM_WALLETS_API_BASE_URL` | `https://api.phantom.app/v1/wallets` | Base URL for the Phantom wallets/KMS API used by `PhantomClient` for signing. |
-| `PHANTOM_CALLBACK_PORT`        | `8080`                               | Local port for the OAuth redirect callback server.                            |
-| `PHANTOM_CALLBACK_PATH`        | `/callback`                          | Path for the OAuth redirect callback.                                         |
-| `PHANTOM_SSO_PROVIDER`         | `google`                             | Default SSO provider (`google` or `apple`).                                   |
 
 #### API
 
-| Variable               | Default                 | Description                                           |
-| ---------------------- | ----------------------- | ----------------------------------------------------- |
-| `PHANTOM_API_BASE_URL` | `http://localhost:3001` | Base URL for the Phantom API.                         |
-| `PHANTOM_VERSION`      | `mcp-server`            | Value sent as the `X-Phantom-Version` request header. |
+| Variable               | Default                   | Description                                           |
+| ---------------------- | ------------------------- | ----------------------------------------------------- |
+| `PHANTOM_API_BASE_URL` | `https://api.phantom.app` | Base URL for the Phantom API.                         |
+| `PHANTOM_VERSION`      | `mcp-server`              | Value sent as the `X-Phantom-Version` request header. |
 
 #### Logging / debugging
 

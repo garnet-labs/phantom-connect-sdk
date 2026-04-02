@@ -77,6 +77,27 @@ const EVM_TO_SOLANA_CROSS_CHAIN_QUOTE_RESPONSE = {
   ],
 };
 
+const EVM_TO_SOLANA_ERC20_CROSS_CHAIN_QUOTE_RESPONSE = {
+  quotes: [
+    {
+      buyAmount: "9250397",
+      sellAmount: "400000000000000",
+      steps: [
+        {
+          chainId: "eip155:8453",
+          transactionData: "0x49290c1c000000",
+          exchangeAddress: "0x4cd00e387622c35bddb9b4c962c136462338bc31",
+          value: "0",
+          gasCosts: [32713],
+          allowanceTarget: "0x2222222222222222222222222222222222222222",
+          approvalExactAmount: "300000000000000",
+          tool: { key: "relay", name: "Relay" },
+        },
+      ],
+    },
+  ],
+};
+
 const makeContext = (overrides: Record<string, unknown> = {}) => {
   const apiClient = {
     post: jest.fn().mockResolvedValue(SOLANA_QUOTE_RESPONSE),
@@ -368,6 +389,84 @@ describe("buy_token — cross-chain", () => {
       "eip155:8453",
     );
     expect(result.execution.signature).toBe("0xtxhash");
+  });
+
+  it("sends ERC-20 approval before EVM→Solana cross-chain execution when allowanceTarget is present", async () => {
+    const { parseToKmsTransaction } = jest.requireMock("@phantom/parsers");
+    parseToKmsTransaction
+      .mockResolvedValueOnce({ parsed: "0xapprovalrlp", originalFormat: "json" })
+      .mockResolvedValueOnce({ parsed: "0xswaprlp", originalFormat: "json" });
+
+    const ctx = makeContext();
+    ctx.apiClient.post.mockResolvedValue(EVM_TO_SOLANA_ERC20_CROSS_CHAIN_QUOTE_RESPONSE);
+
+    mockFetch.mockReset();
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ result: "0x3" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ result: "0x77359400" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            result: "0x" + 0n.toString(16).padStart(64, "0"),
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            result: "0x5208",
+          }),
+      });
+
+    await buyTokenTool.handler(
+      {
+        amount: "400000000000000",
+        sellChainId: "eip155:8453",
+        buyChainId: "solana:mainnet",
+        sellTokenMint: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+        buyTokenIsNative: true,
+        execute: true,
+      },
+      ctx as any,
+    );
+
+    expect(parseToKmsTransaction).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        to: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+        value: "0x0",
+        chainId: 8453,
+        nonce: "0x3",
+        gasPrice: "0x77359400",
+      }),
+      "eip155:8453",
+    );
+    expect(parseToKmsTransaction).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        to: "0x4cd00e387622c35bddb9b4c962c136462338bc31",
+        value: "0x0",
+        chainId: 8453,
+        nonce: "0x4",
+        gasPrice: "0x77359400",
+      }),
+      "eip155:8453",
+    );
+    expect(ctx.client.signAndSendTransaction).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ transaction: "0xapprovalrlp" }),
+    );
+    expect(ctx.client.signAndSendTransaction).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ transaction: "0xswaprlp" }),
+    );
   });
 
   it("returns quote with steps for cross-chain (execute: false)", async () => {

@@ -10,10 +10,10 @@ import type { PhantomClient, SessionData } from "@phantom/mcp-server";
  * Configuration options for PluginSession
  */
 export interface PluginSessionOptions {
-  /** Application identifier from Phantom Portal */
-  appId?: string;
   /** OAuth callback port (default: 8080) */
   callbackPort?: number;
+  /** Authentication flow for the embedded wallet session */
+  authFlow?: "sso" | "device-code";
   /** Directory to store session data (default: ~/.phantom-mcp) */
   sessionDir?: string;
 }
@@ -30,8 +30,9 @@ export class PluginSession {
   constructor(options: PluginSessionOptions = {}) {
     // Initialize SessionManager with configuration
     this.sessionManager = new SessionManager({
-      appId: options.appId ?? "phantom-openclaw",
+      appId: "phantom-openclaw",
       callbackPort: options.callbackPort,
+      authFlow: options.authFlow,
       sessionDir: options.sessionDir,
     });
   }

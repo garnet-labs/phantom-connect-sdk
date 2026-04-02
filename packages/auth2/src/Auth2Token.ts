@@ -33,8 +33,8 @@ export class Auth2Token {
   private _walletTag?: string;
 
   private constructor(accessToken: string) {
-    this._claims = jwtDecode<Claims>(accessToken);
-    this._a2tClaims = jwtDecode<A2TClaims>(this._claims.ext.a2t);
+    this._claims = decodeJwtClaims<Claims>(accessToken);
+    this._a2tClaims = decodeJwtClaims<A2TClaims>(this._claims.ext.a2t);
 
     const walletAud = this._claims.aud.find(aud => aud.startsWith(this.WALLET_URN_PREFIX));
     if (walletAud) {
@@ -77,6 +77,10 @@ export class Auth2Token {
     }
     return this._claims.ext.a2t;
   }
+}
+
+export function decodeJwtClaims<T>(jwt: string): T {
+  return jwtDecode<T>(jwt);
 }
 
 export class Auth2TokenExpiredError extends Error {

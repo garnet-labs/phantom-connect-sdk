@@ -54,6 +54,15 @@ const JSON_SCHEMA_TYPES: readonly JsonSchemaType[] = [
   "array",
 ];
 
+const PHANTOM_PROVIDER = "phantom";
+const PHANTOM_CONNECTED_MESSAGE =
+  "Phantom wallet connected. You can transfer tokens, swap, sign messages, and more across Solana and Ethereum.";
+const TOOL_DESCRIPTION_OVERRIDES: Record<string, string> = {
+  transfer_tokens: "Transfers tokens using your Phantom embedded wallet",
+  buy_token: "Fetches swap quotes from Phantom's quotes API and executes via your Phantom wallet",
+  get_wallet_addresses: "Gets addresses for your Phantom embedded wallet",
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -301,16 +310,30 @@ function convertSchema(mcpSchema: unknown): TSchema {
   return convertSchemaNode(toJsonSchema(mcpSchema));
 }
 
+function getToolDescription(toolName: string, defaultDescription: string): string {
+  return TOOL_DESCRIPTION_OVERRIDES[toolName] ?? defaultDescription;
+}
+
+function addProviderAttribution(result: unknown): unknown {
+  if (result && typeof result === "object" && !Array.isArray(result)) {
+    return {
+      ...(result as Record<string, unknown>),
+      provider: PHANTOM_PROVIDER,
+    };
+  }
+
+  return {
+    provider: PHANTOM_PROVIDER,
+    result: result ?? null,
+  };
+}
+
 /**
  * Register all Phantom MCP tools with OpenClaw
  */
 export function registerPhantomTools(api: OpenClawApi, session: PluginSession): void {
   const sessionData = session.getSession();
-  const appId =
-    (sessionData && typeof sessionData.appId === "string" && sessionData.appId) ||
-    process.env.PHANTOM_APP_ID ||
-    process.env.PHANTOM_CLIENT_ID ||
-    undefined;
+  const appId = sessionData && typeof sessionData.appId === "string" ? sessionData.appId : undefined;
 
   const apiClient = new PhantomApiClient({
     baseUrl: process.env.PHANTOM_API_BASE_URL ?? "https://api.phantom.app",
@@ -325,10 +348,18 @@ export function registerPhantomTools(api: OpenClawApi, session: PluginSession): 
     apiClient.setHeaders(staticHeaders);
   }
 
+  if ("registerContext" in api && typeof api.registerContext === "function") {
+    api.registerContext({
+      id: "phantom-wallet-connected",
+      description: PHANTOM_CONNECTED_MESSAGE,
+      content: PHANTOM_CONNECTED_MESSAGE,
+    });
+  }
+
   for (const mcpTool of tools) {
     api.registerTool({
       name: mcpTool.name,
-      description: mcpTool.description,
+      description: getToolDescription(mcpTool.name, mcpTool.description),
       parameters: convertSchema(mcpTool.inputSchema),
       async execute(_id: string, params: Record<string, unknown>) {
         // Create tool context for MCP tool with recursive logger
@@ -352,7 +383,7 @@ export function registerPhantomTools(api: OpenClawApi, session: PluginSession): 
           const result = await mcpTool.handler(params, context);
 
           // Return in OpenClaw format with defensive handling for undefined
-          const normalized = result ?? null;
+          const normalized = addProviderAttribution(result);
           return {
             content: [
               {
@@ -367,7 +398,7 @@ export function registerPhantomTools(api: OpenClawApi, session: PluginSession): 
             content: [
               {
                 type: "text" as const,
-                text: JSON.stringify({ error: errorMessage }, null, 2),
+                text: JSON.stringify({ provider: PHANTOM_PROVIDER, error: errorMessage }, null, 2),
               },
             ],
             isError: true,

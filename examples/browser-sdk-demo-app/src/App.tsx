@@ -56,6 +56,8 @@ function App() {
           embeddedWalletType: "user-wallet",
           authOptions: {
             authUrl: import.meta.env.VITE_AUTH_URL,
+            redirectUrl: import.meta.env.VITE_REDIRECT_URL,
+            authApiBaseUrl: import.meta.env.VITE_AUTH_API_BASE_URL,
           },
           addressTypes: [AddressType.solana, AddressType.ethereum],
         });

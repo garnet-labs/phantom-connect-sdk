@@ -19,6 +19,7 @@ import type {
 import { PublicKey } from "@solana/web3.js";
 import { normalizeNetworkId } from "./network.js";
 import { fetchNonce, fetchGasPrice, estimateGas } from "./evm.js";
+import { sendApprovalIfNeeded } from "./allowance.js";
 import { getExplorerTxUrl } from "./explorers.js";
 import { resolveEvmRpcUrl } from "./rpc.js";
 import type { PhantomApiClient } from "@phantom/phantom-api-client";
@@ -192,6 +193,8 @@ export interface ExecuteSwapOptions {
   base64EncodedTx?: boolean;
   client: PhantomClient;
   logger: Logger;
+  /** ERC-20 contract address of the sell token (undefined for native tokens). Used to check and send approval if needed. */
+  sellTokenAddress?: string;
 }
 
 export interface SwapExecutionResult {
@@ -212,6 +215,7 @@ export async function executeSwap(options: ExecuteSwapOptions): Promise<SwapExec
     base64EncodedTx,
     client,
     logger,
+    sellTokenAddress,
   } = options;
 
   const isSellSolana = isSolanaChain(sellChainId);
@@ -262,6 +266,26 @@ export async function executeSwap(options: ExecuteSwapOptions): Promise<SwapExec
       const chainId = parseInt(sellChainId.split(":")[1], 10);
       const rpcUrl = resolveEvmRpcUrl(sellChainId);
       const [nonce, gasPrice] = await Promise.all([fetchNonce(rpcUrl, taker), fetchGasPrice(rpcUrl)]);
+      let swapNonce = nonce;
+
+      if (sellTokenAddress && evmStep.allowanceTarget) {
+        swapNonce = await sendApprovalIfNeeded({
+          rpcUrl,
+          tokenAddress: sellTokenAddress,
+          owner: taker,
+          spender: evmStep.allowanceTarget,
+          requiredAmount: BigInt(evmStep.approvalExactAmount ?? crossChainQuote.sellAmount),
+          nonce,
+          gasPrice,
+          chainId,
+          networkId: sellChainId as NetworkId,
+          walletId,
+          derivationIndex,
+          client,
+          logger,
+        });
+      }
+
       const txValue = "0x" + BigInt(evmStep.value ?? "0").toString(16);
       const baseTx: Record<string, unknown> = {
         from: taker,
@@ -269,7 +293,7 @@ export async function executeSwap(options: ExecuteSwapOptions): Promise<SwapExec
         value: txValue,
         data: evmStep.transactionData,
         chainId,
-        nonce,
+        nonce: swapNonce,
         gasPrice,
       };
       const txGas = evmStep.gasCosts?.[0];
@@ -334,6 +358,27 @@ export async function executeSwap(options: ExecuteSwapOptions): Promise<SwapExec
     const chainId = parseInt(sellChainId.split(":")[1], 10);
     const rpcUrl = resolveEvmRpcUrl(sellChainId);
     const [nonce, gasPrice] = await Promise.all([fetchNonce(rpcUrl, taker), fetchGasPrice(rpcUrl)]);
+
+    // Check ERC-20 allowance and send approval tx first if needed
+    let swapNonce = nonce;
+    if (sellTokenAddress && evmQuote.allowanceTarget) {
+      swapNonce = await sendApprovalIfNeeded({
+        rpcUrl,
+        tokenAddress: sellTokenAddress,
+        owner: taker,
+        spender: evmQuote.allowanceTarget,
+        requiredAmount: BigInt(evmQuote.approvalExactAmount ?? evmQuote.sellAmount),
+        nonce,
+        gasPrice,
+        chainId,
+        networkId: sellChainId as NetworkId,
+        walletId,
+        derivationIndex,
+        client,
+        logger,
+      });
+    }
+
     const txValue = "0x" + BigInt(evmQuote.value ?? "0").toString(16);
     const baseTx: Record<string, unknown> = {
       from: taker,
@@ -341,7 +386,7 @@ export async function executeSwap(options: ExecuteSwapOptions): Promise<SwapExec
       value: txValue,
       data: txData,
       chainId,
-      nonce,
+      nonce: swapNonce,
       gasPrice,
     };
     if (evmQuote.gas != null && evmQuote.gas > 0) {

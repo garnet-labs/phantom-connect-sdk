@@ -71,6 +71,7 @@ const config: PhantomSDKConfig = {
   authOptions: {
     authUrl: process.env.EXPO_PUBLIC_AUTH_URL,
     redirectUrl: process.env.EXPO_PUBLIC_REDIRECT_URL || "phantom-rn-demo://phantom-auth-callback",
+    authApiBaseUrl: process.env.EXPO_PUBLIC_AUTH_API_BASE_URL,
   },
   apiBaseUrl: process.env.EXPO_PUBLIC_WALLET_API || "https://api.phantom.app/v1/wallets",
 };

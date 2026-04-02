@@ -131,6 +131,7 @@ export async function createConnectStartUrl({
     // Use session_id as the OAuth state so it comes back in the callback URL
     // and can be validated without an extra sessionStorage entry.
     state: sessionId,
+    should_migrate: true,
   };
 
   const jar = await createAuth2RequestJar({
@@ -333,7 +334,7 @@ export async function _getOrCreateAppWallet({
 
   return await kms.getOrCreateWalletWithTag({
     organizationId,
-    walletName: `App Wallet (${clientId})`,
+    walletName: "App Wallet",
     tag: clientId,
     accounts: DAPP_WALLET_DERIVATIONS,
     mnemonicLength: DAPP_WALLET_MNEMONIC_LENGTH,

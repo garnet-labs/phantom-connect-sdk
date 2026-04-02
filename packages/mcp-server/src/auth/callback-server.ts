@@ -39,6 +39,7 @@ export class CallbackServer {
   private listeningPromise: Promise<void> | null = null;
   private listeningResolve: (() => void) | null = null;
   private listeningReject: ((error: Error) => void) | null = null;
+  private closePromise: Promise<void> | null = null;
 
   /**
    * Creates a new callback server
@@ -265,8 +266,21 @@ export class CallbackServer {
     }
 
     if (this.server) {
-      this.server.close(() => {
-        this.logger.info("Callback server closed");
+      const serverToClose = this.server;
+      // Force-close keep-alive sockets from fetch() clients so tests don't wait
+      // for default HTTP idle timeouts before close callback fires.
+      if ("closeIdleConnections" in serverToClose) {
+        serverToClose.closeIdleConnections();
+      }
+      if ("closeAllConnections" in serverToClose) {
+        serverToClose.closeAllConnections();
+      }
+      this.closePromise = new Promise(resolve => {
+        serverToClose.close(() => {
+          this.logger.info("Callback server closed");
+          this.closePromise = null;
+          resolve();
+        });
       });
       this.server = null;
     }
@@ -289,6 +303,15 @@ export class CallbackServer {
       throw new Error("Callback server has not been started");
     }
     return this.listeningPromise;
+  }
+
+  /**
+   * Waits until an in-progress server close operation has completed.
+   */
+  async waitForClosed(): Promise<void> {
+    if (this.closePromise) {
+      await this.closePromise;
+    }
   }
 
   /**

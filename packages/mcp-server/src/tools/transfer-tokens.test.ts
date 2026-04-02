@@ -51,20 +51,42 @@ jest.mock("@phantom/base64url", () => ({
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const makeContext = (overrides: Record<string, unknown> = {}) => ({
-  client: {
-    signAndSendTransaction: jest.fn().mockResolvedValue({ hash: "0xtxhash", rawTransaction: "0xraw" }),
-    getWalletAddresses: jest.fn().mockResolvedValue([
-      { addressType: "solana", address: "So11111111111111111111111111111111111111112" },
-      { addressType: "ethereum", address: "0xabcdef1234567890abcdef1234567890abcdef12" },
-    ]),
-    ...overrides,
-  },
-  session: { walletId: "wallet-1", organizationId: "org-1" },
-  logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+const MOCK_SIMULATION_RESPONSE = {
+  type: "transaction",
+  expectedChanges: [{ type: "AssetChange", changeSign: "MINUS", changeText: "-0.5 SOL" }],
+  warnings: [],
+};
+
+const makeContext = (overrides: Record<string, unknown> = {}) => {
+  const apiClient = { post: jest.fn().mockResolvedValue(MOCK_SIMULATION_RESPONSE) };
+  return {
+    client: {
+      signAndSendTransaction: jest.fn().mockResolvedValue({ hash: "0xtxhash", rawTransaction: "0xraw" }),
+      getWalletAddresses: jest.fn().mockResolvedValue([
+        { addressType: "solana", address: "So11111111111111111111111111111111111111112" },
+        { addressType: "ethereum", address: "0xabcdef1234567890abcdef1234567890abcdef12" },
+      ]),
+      ...overrides,
+    },
+    session: { walletId: "wallet-1", organizationId: "org-1" },
+    logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+    apiClient,
+  };
+};
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  // Default simulation mock — overridden per-test when needed
+  jest.spyOn(global, "fetch").mockResolvedValue({
+    ok: true,
+    status: 200,
+    text: () => Promise.resolve(JSON.stringify(MOCK_SIMULATION_RESPONSE)),
+  } as Response);
 });
 
-beforeEach(() => jest.clearAllMocks());
+afterEach(() => {
+  jest.restoreAllMocks();
+});
 
 // ── Schema ─────────────────────────────────────────────────────────────────────
 
@@ -94,6 +116,7 @@ describe("transfer_tokens — Solana", () => {
         to: "RecipientAddress111111111111111111111111111",
         amount: "0.5",
         amountUnit: "ui",
+        confirmed: true,
       },
       ctx as any,
     )) as any;
@@ -124,6 +147,7 @@ describe("transfer_tokens — EVM native", () => {
         to: "0x742d35Cc6634C0532925a3b8D4C8db86fB5C4A7E",
         amount: "1000000000000000000",
         amountUnit: "base",
+        confirmed: true,
       },
       ctx as any,
     )) as any;
@@ -141,7 +165,13 @@ describe("transfer_tokens — EVM native", () => {
     const { parseToKmsTransaction } = jest.requireMock("@phantom/parsers");
     const ctx = makeContext();
     await transferTokensTool.handler(
-      { networkId: "eip155:8453", to: "0x742d35Cc6634C0532925a3b8D4C8db86fB5C4A7E", amount: "1", amountUnit: "ui" },
+      {
+        networkId: "eip155:8453",
+        to: "0x742d35Cc6634C0532925a3b8D4C8db86fB5C4A7E",
+        amount: "1",
+        amountUnit: "ui",
+        confirmed: true,
+      },
       ctx as any,
     );
     const baseTx = parseToKmsTransaction.mock.calls[0][0];
@@ -156,6 +186,7 @@ describe("transfer_tokens — EVM native", () => {
         to: "0x742d35Cc6634C0532925a3b8D4C8db86fB5C4A7E",
         amount: "1000000000000000000",
         amountUnit: "base",
+        confirmed: true,
       },
       ctx as any,
     )) as any;
@@ -167,7 +198,13 @@ describe("transfer_tokens — EVM native", () => {
     const { parseToKmsTransaction } = jest.requireMock("@phantom/parsers");
     const ctx = makeContext();
     await transferTokensTool.handler(
-      { networkId: "eip155:8453", to: "0x742d35Cc6634C0532925a3b8D4C8db86fB5C4A7E", amount: "100", amountUnit: "base" },
+      {
+        networkId: "eip155:8453",
+        to: "0x742d35Cc6634C0532925a3b8D4C8db86fB5C4A7E",
+        amount: "100",
+        amountUnit: "base",
+        confirmed: true,
+      },
       ctx as any,
     );
     const baseTx = parseToKmsTransaction.mock.calls[0][0];
@@ -191,6 +228,7 @@ describe("transfer_tokens — EVM ERC-20", () => {
         amount: "1000000",
         amountUnit: "base",
         tokenMint: ERC20_CONTRACT,
+        confirmed: true,
       },
       ctx as any,
     );
@@ -217,6 +255,7 @@ describe("transfer_tokens — EVM ERC-20", () => {
         amountUnit: "ui",
         tokenMint: ERC20_CONTRACT,
         decimals: 6,
+        confirmed: true,
       },
       ctx as any,
     );
@@ -254,10 +293,74 @@ describe("transfer_tokens — EVM ERC-20", () => {
   it("returns tokenMint in result", async () => {
     const ctx = makeContext();
     const result = (await transferTokensTool.handler(
-      { networkId: "eip155:1", to: RECIPIENT, amount: "1000000", amountUnit: "base", tokenMint: ERC20_CONTRACT },
+      {
+        networkId: "eip155:1",
+        to: RECIPIENT,
+        amount: "1000000",
+        amountUnit: "base",
+        tokenMint: ERC20_CONTRACT,
+        confirmed: true,
+      },
       ctx as any,
     )) as any;
     expect(result.tokenMint).toBe(ERC20_CONTRACT);
     expect(result.to).toBe(RECIPIENT);
+  });
+});
+
+// ── Simulation preview (confirmed not set) ─────────────────────────────────
+
+describe("transfer_tokens — simulation preview", () => {
+  it("returns simulation result without submitting when confirmed is not set", async () => {
+    const ctx = makeContext();
+    const result = (await transferTokensTool.handler(
+      { networkId: "solana:mainnet", to: "RecipientAddress111111111111111111111111111", amount: "0.5" },
+      ctx as any,
+    )) as any;
+
+    expect(result.status).toBe("pending_confirmation");
+    expect(result.simulation).toEqual(MOCK_SIMULATION_RESPONSE);
+    expect(ctx.client.signAndSendTransaction).not.toHaveBeenCalled();
+  });
+
+  it("returns simulation result for EVM transfer without submitting", async () => {
+    const ctx = makeContext();
+    const result = (await transferTokensTool.handler(
+      {
+        networkId: "eip155:1",
+        to: "0x742d35Cc6634C0532925a3b8D4C8db86fB5C4A7E",
+        amount: "1000000000000000000",
+        amountUnit: "base",
+      },
+      ctx as any,
+    )) as any;
+
+    expect(result.status).toBe("pending_confirmation");
+    expect(result.simulation).toEqual(MOCK_SIMULATION_RESPONSE);
+    expect(ctx.client.signAndSendTransaction).not.toHaveBeenCalled();
+  });
+
+  it("calls simulation API with correct chainId for Solana", async () => {
+    const ctx = makeContext();
+    await transferTokensTool.handler(
+      { networkId: "solana:mainnet", to: "RecipientAddress111111111111111111111111111", amount: "1" },
+      ctx as any,
+    );
+
+    const [url, body] = (ctx.apiClient.post as jest.Mock).mock.calls[0];
+    expect(url).toContain("/simulation/v1");
+    expect(body.chainId).toBe("solana:101");
+    expect(body.type).toBe("transaction");
+  });
+
+  it("calls simulation API with correct chainId for EVM", async () => {
+    const ctx = makeContext();
+    await transferTokensTool.handler(
+      { networkId: "eip155:1", to: "0x742d35Cc6634C0532925a3b8D4C8db86fB5C4A7E", amount: "100", amountUnit: "base" },
+      ctx as any,
+    );
+
+    const [, body] = (ctx.apiClient.post as jest.Mock).mock.calls[0];
+    expect(body.chainId).toBe("eip155:1");
   });
 });

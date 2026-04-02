@@ -1,6 +1,7 @@
 import { PhantomClient } from "./PhantomClient";
 import type { UserConfig, CreateAuthenticatorParams, AuthenticatorConfig } from "./types";
 import { NetworkId } from "@phantom/constants";
+import { Algorithm } from "@phantom/sdk-types";
 import { SpendingLimitError, TransactionBlockedError } from "./errors";
 import axios, { type AxiosError } from "axios";
 
@@ -26,6 +27,12 @@ describe("PhantomClient Name Length Validation", () => {
   let client: PhantomClient;
 
   beforeEach(() => {
+    const mockAxiosInstance = {
+      post: jest.fn(),
+      interceptors: { request: { use: jest.fn() }, response: { use: jest.fn() } },
+    };
+    (axios.create as jest.Mock).mockReturnValue(mockAxiosInstance);
+
     client = new PhantomClient({
       apiBaseUrl: "https://api.phantom.app",
       organizationId: "test-org-id",
@@ -324,6 +331,7 @@ describe("PhantomClient Spending Limits Integration", () => {
       post: mockAxiosPost,
       interceptors: {
         request: { use: jest.fn() },
+        response: { use: jest.fn() },
       },
     };
 
@@ -917,7 +925,7 @@ describe("PhantomClient rpc_submission_result envelope handling", () => {
   beforeEach(() => {
     const mockAxiosInstance = {
       post: jest.fn(),
-      interceptors: { request: { use: jest.fn() } },
+      interceptors: { request: { use: jest.fn() }, response: { use: jest.fn() } },
     };
     (axios.create as jest.Mock).mockReturnValue(mockAxiosInstance);
 
@@ -1033,7 +1041,7 @@ describe("PhantomClient presignTransaction (per-call)", () => {
     mockAxiosPost = jest.fn();
     const mockAxiosInstance = {
       post: mockAxiosPost,
-      interceptors: { request: { use: jest.fn() } },
+      interceptors: { request: { use: jest.fn() }, response: { use: jest.fn() } },
     };
     (axios.create as jest.Mock).mockReturnValue(mockAxiosInstance);
 
@@ -1181,5 +1189,106 @@ describe("PhantomClient presignTransaction (per-call)", () => {
     expect(presignTransaction).toHaveBeenCalledTimes(1);
     const secondKmsCall = mockKmsPost.mock.calls[1][0];
     expect(secondKmsCall.params.transaction).toBe("prepared-tx-2");
+  });
+});
+
+describe("PhantomClient dynamic request headers", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("adds dynamic headers from client config", async () => {
+    const requestUse = jest.fn();
+    const mockAxiosInstance = {
+      post: jest.fn(),
+      interceptors: {
+        request: { use: requestUse },
+        response: { use: jest.fn() },
+      },
+    };
+    (axios.create as jest.Mock).mockReturnValue(mockAxiosInstance);
+
+    const stamper = {
+      stamp: jest.fn().mockResolvedValue("stamp-header"),
+      algorithm: Algorithm.ed25519,
+      type: "OIDC" as const,
+    };
+
+    new PhantomClient(
+      {
+        apiBaseUrl: "https://api.phantom.app",
+        getHeaders: () => ({
+          authorization: "Bearer access-token",
+          "x-auth-user-id": "auth-user-id",
+        }),
+      },
+      stamper,
+    );
+
+    const stampInterceptor = requestUse.mock.calls[0][0];
+    const config = await stampInterceptor({ data: { hello: "world" }, headers: {} });
+
+    expect(stamper.stamp).toHaveBeenCalled();
+    expect(config.headers["X-Phantom-Stamp"]).toBe("stamp-header");
+    expect(config.headers["authorization"]).toBe("Bearer access-token");
+    expect(config.headers["x-auth-user-id"]).toBe("auth-user-id");
+  });
+
+  it("omits dynamic headers with empty values", async () => {
+    const requestUse = jest.fn();
+    const mockAxiosInstance = {
+      post: jest.fn(),
+      interceptors: {
+        request: { use: requestUse },
+        response: { use: jest.fn() },
+      },
+    };
+    (axios.create as jest.Mock).mockReturnValue(mockAxiosInstance);
+
+    const stamper = {
+      stamp: jest.fn().mockResolvedValue("stamp-header"),
+      algorithm: Algorithm.ed25519,
+      type: "PKI" as const,
+    };
+
+    new PhantomClient(
+      {
+        apiBaseUrl: "https://api.phantom.app",
+        getHeaders: () => ({
+          authorization: null,
+          "x-auth-user-id": "",
+        }),
+      },
+      stamper,
+    );
+
+    const stampInterceptor = requestUse.mock.calls[0][0];
+    const config = await stampInterceptor({ data: "", headers: {} });
+
+    expect(config.headers["X-Phantom-Stamp"]).toBe("stamp-header");
+    expect(config.headers["authorization"]).toBeUndefined();
+    expect(config.headers["x-auth-user-id"]).toBeUndefined();
+  });
+
+  it("does not use OIDC stampers as authenticator public keys", () => {
+    const mockAxiosInstance = {
+      post: jest.fn(),
+      interceptors: {
+        request: { use: jest.fn() },
+        response: { use: jest.fn() },
+      },
+    };
+    (axios.create as jest.Mock).mockReturnValue(mockAxiosInstance);
+
+    const oidcStamper = {
+      stamp: jest.fn(),
+      algorithm: Algorithm.ed25519,
+      type: "OIDC" as const,
+      getKeyInfo: jest.fn().mockReturnValue({ publicKey: "should-not-be-used" }),
+    };
+
+    const client = new PhantomClient({ apiBaseUrl: "https://api.phantom.app" }, oidcStamper as any);
+
+    expect((client as any).getAuthenticatorPublicKey()).toBeUndefined();
   });
 });

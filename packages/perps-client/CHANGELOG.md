@@ -1,5 +1,17 @@
 # @phantom/perps-client
 
+## 1.0.0-beta.0
+
+### Major Changes
+
+- aa1450d: Auth 2.0 and DCR flow enabled
+
+### Patch Changes
+
+- Updated dependencies [aa1450d]
+  - @phantom/client@2.0.0-beta.0
+  - @phantom/phantom-api-client@1.0.0-beta.0
+
 ## 0.1.4
 
 ### Patch Changes

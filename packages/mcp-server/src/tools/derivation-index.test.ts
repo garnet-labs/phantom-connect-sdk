@@ -82,6 +82,7 @@ describe("derivationIndex coercion", () => {
         transaction: validTx,
         networkId: "solana:mainnet",
         derivationIndex: "0",
+        confirmed: true,
       },
       context,
     );
@@ -126,6 +127,7 @@ describe("derivationIndex coercion", () => {
         amount: "1",
         amountUnit: "base",
         derivationIndex: "0",
+        confirmed: true,
       },
       context,
     );

@@ -71,17 +71,11 @@ export interface PhantomMCPServerOptions {
     appId?: string;
     sessionDir?: string;
     /**
-     * Authentication flow (default: "sso" or PHANTOM_AUTH_FLOW env var).
-     * - "sso": Browser redirect + localhost callback (default)
+     * Authentication flow (default: "device-code" or PHANTOM_AUTH_FLOW env var).
+     * - "sso": Browser redirect + localhost callback
      * - "device-code": RFC 8628 device authorization — terminal display + polling
      */
     authFlow?: "sso" | "device-code";
-    /**
-     * Target environment (default: "production" or PHANTOM_ENV env var).
-     * - "production": auth.phantom.app, connect.phantom.app
-     * - "staging": staging-auth.phantom.app, staging-connect.phantom.app
-     */
-    env?: "production" | "staging";
   };
 }
 
@@ -217,9 +211,16 @@ export class PhantomMCPServer {
         // even when the session is not yet initialized (first run, expired, etc.)
         if (toolName === "phantom_login") {
           this.logger.info("Handling phantom_login: resetting session");
+          this.logger.info(
+            "Starting authentication now. If using SSO, Phantom Connect will open in your browser. " +
+              "If using device-code, a device connect URL and code will be shown in the terminal.",
+          );
           try {
             await this.sessionManager.resetSession();
             const session = this.sessionManager.getSession();
+            this.logger.info(
+              `phantom_login successful for walletId: ${session.walletId}, authFlow: ${session.authFlow}`,
+            );
             try {
               await this.wirePaymentHandler();
             } catch (err) {
@@ -235,7 +236,7 @@ export class PhantomMCPServer {
                       success: true,
                       message: "Authentication successful.",
                       walletId: session.walletId,
-                      authFlow: session.authFlow ?? "sso",
+                      authFlow: session.authFlow ?? "device-code",
                     },
                     null,
                     2,

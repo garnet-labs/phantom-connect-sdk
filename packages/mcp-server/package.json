@@ -1,6 +1,6 @@
 {
   "name": "@phantom/mcp-server",
-  "version": "0.2.4",
+  "version": "1.0.0-beta.0",
   "description": "MCP Server for Phantom Wallet",
   "repository": {
     "type": "git",
@@ -19,6 +19,8 @@
     "dev": "tsup --watch",
     "clean": "rm -rf dist",
     "test": "jest",
+    "test:pack": "node scripts/test-pack.mjs",
+    "test:smoke": "node scripts/test-smoke.mjs",
     "test:watch": "jest --watch",
     "lint": "eslint src --ext .ts,.tsx",
     "check-types": "yarn tsc --noEmit",
@@ -40,6 +42,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@phantom/api-key-stamper": "workspace:^",
+    "@phantom/auth2": "workspace:^",
     "@phantom/base64url": "workspace:^",
     "@phantom/client": "workspace:^",
     "@phantom/constants": "workspace:^",
@@ -47,6 +50,7 @@
     "@phantom/parsers": "workspace:^",
     "@phantom/perps-client": "workspace:^",
     "@phantom/phantom-api-client": "workspace:^",
+    "@phantom/sdk-types": "workspace:^",
     "@phantom/server-sdk": "workspace:^",
     "@phantom/utils": "workspace:^",
     "@solana/spl-token": "^0.4.14",

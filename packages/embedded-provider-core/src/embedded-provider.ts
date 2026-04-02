@@ -86,6 +86,11 @@ interface StamperResponse {
   expiresInMs: number;
 }
 
+type AuthHeaderStamper = {
+  bearerToken?: string | null;
+  auth2Token?: { sub?: string | null } | null;
+};
+
 const noopLogger: DebugLogger = {
   info: () => {},
   warn: () => {},
@@ -1364,6 +1369,8 @@ export class EmbeddedProvider {
       await this.stamper.init();
     }
 
+    const authHeaderStamper = this.stamper as AuthHeaderStamper;
+
     // Create PhantomClient with organizationId from auth flow
     this.client = new PhantomClient(
       {
@@ -1371,9 +1378,11 @@ export class EmbeddedProvider {
         organizationId: session.organizationId,
         headers: {
           ...(this.platform.analyticsHeaders || {}),
-          ...(session.authUserId ? { "x-auth-user-id": session.authUserId } : {}),
-          ...(session.bearerToken ? { Authorization: session.bearerToken } : {}),
         },
+        getHeaders: () => ({
+          authorization: authHeaderStamper.bearerToken ?? session.bearerToken,
+          "x-auth-user-id": authHeaderStamper.auth2Token?.sub ?? session.authUserId,
+        }),
       },
       this.stamper,
     );

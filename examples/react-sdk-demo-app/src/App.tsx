@@ -41,14 +41,10 @@ function App() {
       apiBaseUrl: import.meta.env.VITE_API_BASE_URL || "https://api.phantom.app/v1/wallets",
       embeddedWalletType: "user-wallet",
       authOptions: {
-        authUrl: import.meta.env.VITE_AUTH_URL || "https://connect.phantom.app/login",
+        authUrl: import.meta.env.VITE_AUTH_URL || "https://connect.phantom.app/login/start",
         redirectUrl: import.meta.env.VITE_REDIRECT_URL,
+        authApiBaseUrl: import.meta.env.VITE_AUTH_API_BASE_URL || "https://auth.phantom.app",
       },
-      /** When also provided, the Auth2 PKCE flow is used instead of the legacy Phantom Connect flow. */
-      // unstable__auth2Options: {
-      //   authApiBaseUrl: import.meta.env.VITE___UNSTABLE_AUTH_API_BASE_URL,
-      //   clientId: import.meta.env.VITE___UNSTABLE_AUTH_CLIENT_ID,
-      // },
       autoConnect: true,
     }),
     [],

@@ -19,6 +19,7 @@ const config = {
     "<rootDir>/examples/react-sdk-demo-app",
     "<rootDir>/examples/browser-sdk-demo-app",
     "<rootDir>/packages/indexed-db-stamper/jest.config.js",
+    "<rootDir>/packages/mcp-server/jest.config.js",
   ],
 };
 

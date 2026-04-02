@@ -1349,9 +1349,11 @@ interface PhantomSDKConfig {
   // Optional configuration
   apiBaseUrl?: string; // Phantom API base URL (optional, has default)
   authOptions?: {
-    authUrl?: string; // Custom auth URL (optional, defaults to "https://connect.phantom.app/login")
+    authUrl?: string; // Custom auth URL (optional, defaults to "https://connect.phantom.app/login/start")
     redirectUrl?: string; // Custom redirect URL after authentication (optional)
+    authApiBaseUrl?: string; // Custom OAuth URL (optional)
   };
+
   embeddedWalletType?: "user-wallet"; // Wallet type (optional, defaults to "user-wallet")
   autoConnect?: boolean; // Auto-connect to existing session (default: true when embedded providers used)
 }

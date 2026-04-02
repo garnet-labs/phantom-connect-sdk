@@ -1,5 +1,19 @@
 # @phantom/react-sdk
 
+## 2.0.0-beta.0
+
+### Major Changes
+
+- aa1450d: Auth 2.0 and DCR flow enabled
+
+### Patch Changes
+
+- Updated dependencies [aa1450d]
+  - @phantom/browser-sdk@2.0.0-beta.0
+  - @phantom/chain-interfaces@2.0.0-beta.0
+  - @phantom/constants@2.0.0-beta.0
+  - @phantom/wallet-sdk-ui@2.0.0-beta.0
+
 ## 1.0.7
 
 ### Patch Changes

@@ -1,7 +1,7 @@
 {
   "name": "@phantom/phantom-openclaw-plugin",
-  "version": "0.2.4",
-  "description": "OpenClaw plugin that bridges tool calls to Phantom's MCP server for wallet operations.",
+  "version": "1.0.0-beta.0",
+  "description": "Phantom Embedded Wallet — sign transactions, transfer tokens, and swap on Solana and Ethereum. Powered by Phantom.",
   "repository": {
     "type": "git",
     "url": "https://github.com/phantom/phantom-connect-sdk",

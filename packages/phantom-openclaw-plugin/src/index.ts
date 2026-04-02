@@ -14,14 +14,12 @@ let sessionInstance: PluginSession | null = null;
 const PLUGIN_ID = "phantom-openclaw-plugin";
 
 const STRING_CONFIG_KEYS = [
-  "PHANTOM_APP_ID",
-  "PHANTOM_CLIENT_ID",
-  "PHANTOM_CLIENT_SECRET",
   "PHANTOM_AUTH_BASE_URL",
   "PHANTOM_CONNECT_BASE_URL",
+  "PHANTOM_WALLETS_API_BASE_URL",
   "PHANTOM_API_BASE_URL",
+  "PHANTOM_VERSION",
   "PHANTOM_CALLBACK_PATH",
-  "PHANTOM_SSO_PROVIDER",
   "PHANTOM_MCP_DEBUG",
 ] as const;
 
@@ -95,21 +93,13 @@ function getSession(config?: Record<string, unknown>): PluginSession {
   if (!sessionInstance) {
     const pluginConfig = getPluginConfig(config);
     applyConfigToEnv(pluginConfig);
-
-    const appId = (process.env.PHANTOM_APP_ID ?? process.env.PHANTOM_CLIENT_ID)?.trim();
-    if (!appId) {
-      throw new Error(
-        'PHANTOM_APP_ID is required. Configure it in "~/.openclaw/openclaw.json" at plugins.entries["phantom-openclaw-plugin"].config.PHANTOM_APP_ID',
-      );
-    }
-
     const envPort = process.env.PHANTOM_CALLBACK_PORT?.trim();
     const parsedPort = envPort ? Number.parseInt(envPort, 10) : NaN;
     const callbackPort = Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535 ? parsedPort : undefined;
 
     sessionInstance = new PluginSession({
-      appId,
       callbackPort,
+      authFlow: "device-code",
     });
   }
   return sessionInstance;

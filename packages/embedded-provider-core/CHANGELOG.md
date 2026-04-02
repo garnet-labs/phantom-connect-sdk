@@ -1,5 +1,24 @@
 # @phantom/embedded-provider-core
 
+## 2.0.0-beta.0
+
+### Major Changes
+
+- aa1450d: Auth 2.0 and DCR flow enabled
+
+### Patch Changes
+
+- Updated dependencies [aa1450d]
+  - @phantom/api-key-stamper@2.0.0-beta.0
+  - @phantom/auth2@2.0.0-beta.0
+  - @phantom/base64url@2.0.0-beta.0
+  - @phantom/chain-interfaces@2.0.0-beta.0
+  - @phantom/client@2.0.0-beta.0
+  - @phantom/constants@2.0.0-beta.0
+  - @phantom/parsers@2.0.0-beta.0
+  - @phantom/sdk-types@2.0.0-beta.0
+  - @phantom/utils@2.0.0-beta.0
+
 ## 1.0.7
 
 ### Patch Changes

@@ -15,6 +15,8 @@ export interface PhantomClientConfig {
   organizationId?: string;
   headers?: Partial<SdkAnalyticsHeaders>;
   walletType?: "server-wallet" | "user-wallet";
+  /** Optional dynamic headers provider used for flows backed by live auth state. */
+  getHeaders?: () => Record<string, string | null | undefined>;
   /** Optional logger — when provided, replaces console.error inside PhantomClient */
   logger?: Logger;
 }

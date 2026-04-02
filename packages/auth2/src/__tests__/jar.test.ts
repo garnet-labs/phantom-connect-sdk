@@ -219,6 +219,23 @@ describe("createAuth2RequestJar", () => {
     expect(decoded.login_hint).toBeUndefined();
   });
 
+  it("includes should_migrate in the payload when set to true", async () => {
+    const jar = await createAuth2RequestJar({
+      payload: { ...basePayload, should_migrate: true },
+      keyPair: mockKeyPair,
+    });
+
+    const decoded = JSON.parse(Buffer.from(jar.split(".")[1]!, "base64url").toString("utf8")) as Auth2RequestJarPayload;
+    expect(decoded.should_migrate).toBe(true);
+  });
+
+  it("omits should_migrate from the payload when not provided", async () => {
+    const jar = await createAuth2RequestJar({ payload: basePayload, keyPair: mockKeyPair });
+
+    const decoded = JSON.parse(Buffer.from(jar.split(".")[1]!, "base64url").toString("utf8")) as Auth2RequestJarPayload;
+    expect(decoded.should_migrate).toBeUndefined();
+  });
+
   it("throws 'Unable to export a valid P-256 public JWK' when the exported key is not EC/P-256", async () => {
     mockSubtle.exportKey.mockResolvedValueOnce({ kty: "RSA" });
 

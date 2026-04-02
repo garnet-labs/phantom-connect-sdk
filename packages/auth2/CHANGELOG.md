@@ -1,5 +1,18 @@
 # @phantom/auth2
 
+## 2.0.0-beta.0
+
+### Major Changes
+
+- aa1450d: Auth 2.0 and DCR flow enabled
+
+### Patch Changes
+
+- Updated dependencies [aa1450d]
+  - @phantom/base64url@2.0.0-beta.0
+  - @phantom/crypto@2.0.0-beta.0
+  - @phantom/sdk-types@2.0.0-beta.0
+
 ## 1.0.2
 
 ### Patch Changes

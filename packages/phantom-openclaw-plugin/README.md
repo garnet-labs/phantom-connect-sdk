@@ -8,7 +8,7 @@
 >
 > **Phantom makes no guarantees whatsoever around anything your agent may do using this plugin.** Use at your own risk.
 
-Direct integration with Phantom wallet for OpenClaw agents. This plugin wraps the Phantom MCP Server to provide seamless wallet operations including address retrieval, message signing, transaction signing, token transfers, and token swaps.
+Direct integration with Phantom wallet for OpenClaw agents. This plugin wraps the Phantom MCP Server to provide seamless wallet operations including address retrieval, message signing, transaction signing, token transfers, token approval checks, transaction simulations, and token swaps.
 
 ## Overview
 
@@ -20,21 +20,13 @@ Get up and running in under 5 minutes:
 
 ### Installation Checklist
 
-- [ ] **Step 1:** Get your App ID from [phantom.com/portal](https://phantom.com/portal)
-  - Sign in with Gmail or Apple
-  - Click "Create App"
-  - Go to Dashboard → View App → Redirect URLs
-  - Add `http://localhost:8080/callback` as a redirect URL
-  - Navigate to "Phantom Connect" tab
-  - Copy your App ID
-
-- [ ] **Step 2:** Install the plugin
+- [ ] **Step 1:** Install the plugin
 
   ```bash
   openclaw plugins install @phantom/phantom-openclaw-plugin
   ```
 
-- [ ] **Step 3:** Configure in `~/.openclaw/openclaw.json`
+- [ ] **Step 2:** Enable it in `~/.openclaw/openclaw.json`
 
   ```json
   {
@@ -42,51 +34,35 @@ Get up and running in under 5 minutes:
       "enabled": true,
       "entries": {
         "phantom-openclaw-plugin": {
-          "enabled": true,
-          "config": {
-            "PHANTOM_APP_ID": "your_app_id_from_portal"
-          }
+          "enabled": true
         }
       }
     }
   }
   ```
 
-- [ ] **Step 4:** Restart OpenClaw
+- [ ] **Step 3:** Restart OpenClaw
 
-- [ ] **Step 5:** Test with your agent
+- [ ] **Step 4:** Test with your agent
   ```text
   Ask: "What are my Phantom wallet addresses?"
   ```
-
-**⚠️ Important:** Use the same email address for both the Phantom Portal and OpenClaw authentication!
 
 See [Prerequisites](#prerequisites) below for detailed setup instructions.
 
 ## Features
 
 - **Direct Integration**: Built on top of `@phantom/mcp-server` for reliable wallet operations
-- **Automatic Authentication**: Handles OAuth flow and session management automatically
+- **Automatic Authentication**: Uses Phantom device-code authentication and persists the session automatically
 - **Type-Safe**: Full TypeScript support with proper type definitions
 - **Simple Setup**: Minimal configuration - just enable the plugin and use
+- **Simulation-First Flows**: Preview transfers and transaction sends before submitting them
+- **Token Approval Checks**: Check ERC-20 allowances before EVM swaps or contract interactions
 - **Perpetuals Trading**: Full Hyperliquid perps support — swap and deposit funds, manage positions, and trade perpetuals
 
 ## Prerequisites
 
-Before using this plugin, you **must** obtain an App ID from the Phantom Portal:
-
-1. **Visit the Phantom Portal**: Go to [phantom.com/portal](https://phantom.com/portal)
-2. **Sign in**: Use your Gmail or Apple account to sign in
-3. **Create an App**: Click "Create App" and fill in the required details
-4. **Configure Redirect URL**:
-   - Navigate to Dashboard → View App → Redirect URLs
-   - Add `http://localhost:8080/callback` as a redirect URL
-   - This allows the OAuth callback to work correctly
-5. **Get Your App ID**: Navigate to the "Phantom Connect" tab to find your App ID
-   - Your app is automatically approved for development use
-   - Copy the App ID for the configuration below
-
-**Important:** The email you use to sign in to the Phantom Portal **must match** the email you use when authenticating with the plugin. If these don't match, authentication will fail.
+Before using this plugin, install it in OpenClaw and make sure the host can open a browser for the Phantom device-code login flow the first time a wallet action is requested.
 
 ## Installation
 
@@ -104,10 +80,7 @@ Configure the plugin in your OpenClaw configuration file (`~/.openclaw/openclaw.
     "enabled": true,
     "entries": {
       "phantom-openclaw-plugin": {
-        "enabled": true,
-        "config": {
-          "PHANTOM_APP_ID": "your_app_id_from_portal"
-        }
+        "enabled": true
       }
     }
   }
@@ -116,22 +89,37 @@ Configure the plugin in your OpenClaw configuration file (`~/.openclaw/openclaw.
 
 ### Configuration Options
 
-- **`PHANTOM_APP_ID`** (required): Your App ID from the Phantom Portal
-- **`PHANTOM_CLIENT_SECRET`** (optional): Client secret for confidential clients
-- **`PHANTOM_CALLBACK_PORT`** (optional): OAuth callback port (default: 8080)
-- **`PHANTOM_MCP_DEBUG`** (optional): Enable debug logging (set to "1")
+The OpenClaw plugin uses Phantom's device-code authentication flow.
 
-**Note:** Most users only need to provide `PHANTOM_APP_ID`. The other options are for advanced use cases.
+Supported optional config keys mirror the MCP server environment surface used by the plugin:
 
-### Troubleshooting: `DCR 404` During Startup
+- **`PHANTOM_AUTH_BASE_URL`**: Auth service base URL. Default: `https://auth.phantom.app`
+- **`PHANTOM_CONNECT_BASE_URL`**: Connect/device authorization base URL. Default: `https://connect.phantom.app`
+- **`PHANTOM_WALLETS_API_BASE_URL`**: Wallets/KMS API base URL. Default: `https://api.phantom.app/v1/wallets`
+- **`PHANTOM_API_BASE_URL`**: Phantom API base URL for swaps, balances, and related tool calls. Default: `https://api.phantom.app`
+- **`PHANTOM_VERSION`**: Optional version header override
+- **`PHANTOM_MCP_DEBUG`**: Enable debug logging (set to `"1"` or `"true"`)
 
-If startup fails with `Failed to register OAuth client` and `status code 404`, OpenClaw likely did not provide a valid `PHANTOM_APP_ID` to the plugin.
+Example staging config:
 
-Verify your config is nested exactly at:
-
-`plugins.entries["phantom-openclaw-plugin"].config.PHANTOM_APP_ID`
-
-`PHANTOM_APP_ID` values are issued from [phantom.com/portal](https://phantom.com/portal).
+```json
+{
+  "plugins": {
+    "enabled": true,
+    "entries": {
+      "phantom-openclaw-plugin": {
+        "enabled": true,
+        "config": {
+          "PHANTOM_AUTH_BASE_URL": "https://staging-auth.phantom.app",
+          "PHANTOM_CONNECT_BASE_URL": "https://staging-connect.phantom.app",
+          "PHANTOM_WALLETS_API_BASE_URL": "https://staging-api.phantom.app/v1/wallets",
+          "PHANTOM_API_BASE_URL": "https://staging-api.phantom.app"
+        }
+      }
+    }
+  }
+}
+```
 
 ## Available Tools
 
@@ -167,7 +155,7 @@ Get all fungible token balances for the authenticated wallet with live USD price
 
 ### `send_solana_transaction`
 
-Sign and broadcast a pre-built Solana transaction. Accepts a base64-encoded serialized transaction.
+Sign and broadcast a pre-built Solana transaction. By default this follows a two-step flow: first simulate, then submit only after explicit approval.
 
 **Parameters:**
 
@@ -175,6 +163,7 @@ Sign and broadcast a pre-built Solana transaction. Accepts a base64-encoded seri
 - `networkId` (string, optional): Solana network (default: `"solana:mainnet"`)
 - `walletId` (string, optional): Wallet ID (defaults to authenticated wallet)
 - `derivationIndex` (number, optional): Derivation index (default: 0)
+- `confirmed` (boolean, optional): Set to `true` only after the user has reviewed and approved the simulation
 
 **Example:**
 
@@ -205,7 +194,7 @@ Sign a UTF-8 message with the Solana wallet. Returns a base58-encoded signature.
 
 ### `send_evm_transaction`
 
-Sign and broadcast an EVM transaction. Nonce, gas, and gasPrice are optional — fetched from the network if omitted.
+Sign and broadcast an EVM transaction. By default this follows a two-step flow: first simulate, then submit only after explicit approval. Nonce, gas, and gasPrice are optional — fetched from the network if omitted.
 
 **Parameters:**
 
@@ -215,6 +204,7 @@ Sign and broadcast an EVM transaction. Nonce, gas, and gasPrice are optional —
 - `data` (string, optional): Encoded calldata (0x-prefixed hex)
 - `gas`, `gasPrice`, `maxFeePerGas`, `maxPriorityFeePerGas`, `nonce` (string, optional): All auto-fetched if omitted
 - `derivationIndex` (number, optional): Derivation index (default: 0)
+- `confirmed` (boolean, optional): Set to `true` only after the user has reviewed and approved the simulation
 
 **Example:**
 
@@ -255,9 +245,39 @@ Sign EIP-712 typed structured data. Used for DeFi permit signatures, order signi
 - `chainId` (number, required): EVM chain ID (e.g., `1` for Ethereum, `8453` for Base, `137` for Polygon, `143` for Monad)
 - `derivationIndex` (number, optional): Derivation index (default: 0)
 
+### `get_token_allowance`
+
+Check the ERC-20 allowance granted by an owner address to a spender address on any supported EVM chain. Use this before an EVM swap or contract interaction to determine whether an `approve()` transaction is needed.
+
+**Parameters:**
+
+- `chainId` (number|string, required): EVM chain ID (e.g., `8453`, `"8453"`, or `"0x2105"` for Base)
+- `tokenAddress` (string, required): ERC-20 token contract address
+- `spenderAddress` (string, required): Address of the spender to check allowance for
+- `ownerAddress` (string, optional): Token owner address. Defaults to the authenticated wallet address
+- `walletId` (string, optional): Wallet ID, only used when `ownerAddress` is omitted
+- `derivationIndex` (number, optional): Derivation index (default: 0)
+- `rpcUrl` (string, optional): Custom EVM RPC URL override
+
+### `simulate_transaction`
+
+Preview expected asset changes, warnings, and blocking conditions without submitting anything on-chain. Supports Solana, EVM, Sui, Bitcoin, and EVM message signing flows.
+
+**Parameters:**
+
+- `chainId` (string, required): CAIP-2 chain ID such as `"solana:mainnet"` or `"eip155:8453"`
+- `type` (string, required): `"transaction"` or `"message"`
+- `params` (object, required): Chain-specific simulation payload
+- `url` (string, optional): dApp origin URL for additional context
+- `context` (string, optional): `"swap"`, `"bridge"`, `"send"`, or `"gaslessSwap"`
+- `userAccount` (string, optional): Wallet address to simulate for. Auto-derived for Solana and EVM
+- `language` (string, optional): Response language code (default: `"en"`)
+- `derivationIndex` (number, optional): HD derivation index (default: 0)
+- `walletId` (string, optional): Wallet ID override
+
 ### `transfer_tokens`
 
-Transfer native tokens or fungible tokens on Solana and EVM chains. Builds, signs, and sends the transaction immediately.
+Transfer native tokens or fungible tokens on Solana and EVM chains. By default this uses a two-step flow: first simulate and preview, then submit only after explicit approval.
 
 **Parameters:**
 
@@ -269,6 +289,7 @@ Transfer native tokens or fungible tokens on Solana and EVM chains. Builds, sign
 - `decimals` (number, optional): Token decimals — optional on Solana (auto-fetched); required for ERC-20 with `amountUnit: "ui"`
 - `derivationIndex` (number, optional): Derivation index (default: 0)
 - `createAssociatedTokenAccount` (boolean, optional): Solana only — create destination ATA if missing (default: true)
+- `confirmed` (boolean, optional): Set to `true` only after the user has reviewed and approved the simulation
 
 **Example (SOL):**
 
@@ -305,7 +326,9 @@ Transfer native tokens or fungible tokens on Solana and EVM chains. Builds, sign
 }
 ```
 
-**⚠️ Warning:** This tool submits transactions immediately and irreversibly.
+**Simulation response:** When `confirmed` is omitted, the tool returns `status: "pending_confirmation"` with `simulation.expectedChanges`, `warnings`, and optional `block`.
+
+**⚠️ Warning:** Only set `confirmed: true` after the user approves the preview.
 
 ### `buy_token`
 
@@ -325,6 +348,8 @@ Fetch a swap quote from Phantom's routing engine. Supports same-chain Solana, sa
 - `execute` (boolean, optional): Sign and send the initiation transaction immediately. For cross-chain swaps (`sellChainId` ≠ `buyChainId`) this sends the source-chain transaction; the bridge completes the destination side automatically. Default: false
 - `derivationIndex` (number, optional): Derivation index (default: 0)
 - `quoteApiUrl` (string, optional): Phantom-compatible quotes API override. Leave unset for normal use.
+
+For EVM swaps, use `get_token_allowance` when you need to check whether the sell token requires an ERC-20 approval before execution. Quote responses may also include `requiredApprovals` for relevant steps.
 
 **Example (Solana swap):**
 
@@ -523,12 +548,11 @@ Network identifiers follow the CAIP-2/CAIP-10 format. Here are the supported net
 
 ## Authentication
 
-On first use, the plugin will automatically initiate the Phantom OAuth flow:
+On first use, the plugin will automatically initiate the Phantom device-code authentication flow:
 
-1. A browser window will open to `https://connect.phantom.app`
+1. A browser window will open to Phantom Connect
 2. Sign in with your Google or Apple account
-   - **Important:** Use the same email you used to sign in to the Phantom Portal
-3. Authorize the application
+3. Approve the wallet session for OpenClaw
 4. The session will be saved for future use
 
 Sessions are stored securely in `~/.phantom-mcp/session.json` with restricted permissions and persist across restarts. The plugin uses stamper keypair authentication which doesn't expire.
@@ -584,7 +608,6 @@ For contributors or those testing unreleased versions.
 - Node.js 18+
 - yarn
 - Phantom wallet account for testing
-- App ID from [Phantom Portal](https://phantom.com/portal)
 
 ### Local Installation
 
@@ -611,10 +634,7 @@ For contributors or those testing unreleased versions.
        "enabled": true,
        "entries": {
          "phantom-openclaw-plugin": {
-           "enabled": true,
-           "config": {
-             "PHANTOM_APP_ID": "your_app_id_from_portal"
-           }
+           "enabled": true
          }
        }
      }

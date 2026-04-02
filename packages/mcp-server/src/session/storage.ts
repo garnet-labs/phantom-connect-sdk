@@ -51,13 +51,14 @@ export class SessionStorage {
 
       const data = fs.readFileSync(this.sessionFile, "utf-8");
       const session = JSON.parse(data) as Partial<SessionData>;
+      const isDeviceCodeSession = session.authFlow === "device-code";
       if (
         typeof session.walletId !== "string" ||
         typeof session.organizationId !== "string" ||
         typeof session.authUserId !== "string" ||
         (session.appId !== undefined && typeof session.appId !== "string") ||
-        typeof session.stamperKeys?.publicKey !== "string" ||
-        typeof session.stamperKeys?.secretKey !== "string" ||
+        (!isDeviceCodeSession &&
+          (typeof session.stamperKeys?.publicKey !== "string" || typeof session.stamperKeys?.secretKey !== "string")) ||
         typeof session.createdAt !== "number" ||
         typeof session.updatedAt !== "number"
       ) {

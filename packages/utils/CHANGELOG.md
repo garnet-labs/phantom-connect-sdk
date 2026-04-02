@@ -1,5 +1,11 @@
 # @phantom/utils
 
+## 2.0.0-beta.0
+
+### Major Changes
+
+- aa1450d: Auth 2.0 and DCR flow enabled
+
 ## 1.0.7
 
 ### Patch Changes

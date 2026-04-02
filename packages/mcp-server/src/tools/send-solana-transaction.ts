@@ -12,15 +12,22 @@ import type { NetworkId } from "@phantom/client";
 import { WalletServiceError } from "@phantom/client";
 import { isSolanaChain } from "@phantom/utils";
 import { base64urlEncode } from "@phantom/base64url";
+import bs58 from "bs58";
 import type { ToolHandler, ToolContext } from "./types.js";
-import { normalizeNetworkId } from "../utils/network.js";
+import { normalizeNetworkId, normalizeSwapperChainId } from "../utils/network.js";
 import { getSolanaAddress } from "../utils/solana.js";
 import { parseOptionalNonNegativeInteger } from "../utils/params.js";
+import { runSimulation } from "../utils/simulation.js";
 
 export const sendSolanaTransactionTool: ToolHandler = {
   name: "send_solana_transaction",
   description:
-    "Signs and broadcasts a Solana transaction using the authenticated embedded wallet. Accepts a standard base64-encoded serialized transaction (the format returned by Solana DeFi APIs such as Jupiter, Phantom swap, and others). Returns the transaction signature on success.",
+    "Signs and broadcasts a Solana transaction using the authenticated embedded wallet. Accepts a standard base64-encoded serialized transaction (the format returned by Solana DeFi APIs such as Jupiter, Phantom swap, and others). " +
+    "SAFETY: By default (no confirmed flag), this tool runs a simulation and returns expected asset changes and warnings WITHOUT sending anything — use this to show the user what will happen and ask for approval. " +
+    "Pass confirmed: true only after the user explicitly approves the preview to actually sign and send. " +
+    "If the user wants to skip simulation and execute immediately, pass confirmed: true directly — but the two-step flow is recommended for safety. " +
+    "Response WITHOUT confirmed: {status: 'pending_confirmation', simulation: {expectedChanges, warnings, block?, advancedDetails?} | null}. " +
+    "Response WITH confirmed: true: {signature, networkId, account}.",
   inputSchema: {
     type: "object",
     properties: {
@@ -42,6 +49,11 @@ export const sendSolanaTransactionTool: ToolHandler = {
         type: "number",
         description: "Optional derivation index for the account (default: 0)",
         minimum: 0,
+      },
+      confirmed: {
+        type: "boolean",
+        description:
+          "Set to true only after the user has reviewed and approved the simulation results. Omit (or false) on the first call to get a simulation preview without submitting.",
       },
     },
     required: ["transaction"],
@@ -86,6 +98,29 @@ export const sendSolanaTransactionTool: ToolHandler = {
 
     const encoded = base64urlEncode(txBytes);
     const account = await getSolanaAddress(context, walletId, derivationIndex);
+    const confirmed = params.confirmed === true;
+
+    if (!confirmed) {
+      logger.info("Running simulation before sending Solana transaction (confirmed not set)");
+      const base58Tx = bs58.encode(txBytes);
+      try {
+        const simulation = await runSimulation(
+          {
+            type: "transaction",
+            chainId: normalizeSwapperChainId(networkId),
+            userAccount: account,
+            params: { transactions: [base58Tx], method: "signAndSendTransaction" },
+          },
+          context,
+        );
+        logger.info("Simulation complete — awaiting user confirmation");
+        return { status: "pending_confirmation", simulation };
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.warn(`Unable to simulate transaction at the moment: ${errorMessage}`);
+        return { status: "pending_confirmation", simulation: null };
+      }
+    }
 
     logger.info(`Sending Solana transaction for wallet ${walletId} on ${networkId}`);
 

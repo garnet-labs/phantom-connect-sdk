@@ -15,15 +15,7 @@ export interface PhantomSDKConfig
   apiBaseUrl?: string;
   /** Authentication options */
   embeddedWalletType?: "app-wallet" | "user-wallet";
-  authOptions?: {
-    authUrl?: string;
-    redirectUrl?: string;
-  };
-  /** When also provided, the Auth2 PKCE flow is used instead of the legacy Phantom Connect flow. */
-  unstable__auth2Options?: {
-    authApiBaseUrl: string;
-    clientId: string;
-  };
+  authOptions?: { authUrl?: string; redirectUrl?: string; authApiBaseUrl?: string };
 }
 
 export interface ConnectOptions {

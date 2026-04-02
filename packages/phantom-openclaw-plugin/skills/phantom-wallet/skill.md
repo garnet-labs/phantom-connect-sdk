@@ -1,15 +1,17 @@
 ---
 name: phantom-wallet
-description: Interact with Phantom wallet - check balances, get addresses, transfer tokens, swap, and sign messages and transactions
+description: Phantom wallet connected. You can transfer tokens, swap, sign messages, and more across Solana and Ethereum.
 version: 1.0.0
 emoji: 👻
 homepage: https://phantom.com
-always: false
+always: true
 ---
 
 # Phantom Wallet Operations
 
-You are helping the user interact with their Phantom wallet. You have direct access to Phantom wallet tools integrated from the Phantom MCP Server.
+Phantom wallet connected. You can transfer tokens, swap, sign messages, and more across Solana and Ethereum.
+
+You are helping the user interact with their Phantom embedded wallet. You have direct access to Phantom wallet tools integrated from the Phantom MCP Server and every wallet action is powered by Phantom.
 
 ## Available Tools
 
@@ -37,11 +39,46 @@ Get all fungible token balances for the authenticated wallet with live USD price
 
 **Parameters:** None
 
+### phantom_login
+
+Trigger Phantom authentication or re-authentication. Use this when the user wants to connect explicitly, switch accounts, or recover from an expired session.
+
+**Parameters:** None
+
+### pay_api_access
+
+Pay for daily API access when another tool returns `API_PAYMENT_REQUIRED`. Pass the `preparedTx` from the error response, then retry the original tool call.
+
+**Parameters:**
+
+```json
+{
+  "preparedTx": "base64-encoded-solana-transaction",
+  "derivationIndex": 0
+}
+```
+
+### simulate_transaction
+
+Preview expected asset changes, warnings, and blocking conditions without submitting anything on-chain. Supports Solana, EVM, Sui, Bitcoin, and EVM message-signing simulations.
+
+**Parameters:**
+
+```json
+{
+  "chainId": "solana:mainnet",
+  "type": "transaction",
+  "params": {
+    "transactions": ["base58-encoded-transaction"]
+  }
+}
+```
+
 ### send_solana_transaction
 
-Sign and broadcast a pre-built Solana transaction. **Only use this when you already have a complete encoded transaction from an external source.** For transfers use `transfer_tokens`; for swaps use `buy_token`.
+Simulate, sign, and broadcast a pre-built Solana transaction. **Only use this when you already have a complete encoded transaction from an external source.** For transfers use `transfer_tokens`; for swaps use `buy_token`.
 
-**Important:** This submits the transaction to the network immediately — it is irreversible.
+**Important:** This is a two-step flow. First call without `confirmed` to simulate. Only call again with `confirmed: true` after explicit user approval.
 
 **Parameters:**
 
@@ -49,7 +86,8 @@ Sign and broadcast a pre-built Solana transaction. **Only use this when you alre
 {
   "transaction": "base64-encoded-solana-transaction",
   "networkId": "solana:mainnet",
-  "derivationIndex": 0
+  "derivationIndex": 0,
+  "confirmed": false
 }
 ```
 
@@ -69,9 +107,9 @@ Sign a UTF-8 message with the Solana wallet. Returns a base58-encoded signature.
 
 ### send_evm_transaction
 
-Sign and broadcast an EVM transaction using the authenticated wallet. Pass the fields you have — `nonce`, `gas`, and `gasPrice` are fetched from the network automatically if omitted. Use this when you have a transaction object from an external source (e.g. a DeFi aggregator) or when constructing a transaction directly.
+Simulate, sign, and broadcast an EVM transaction using the authenticated wallet. Pass the fields you have — `nonce`, `gas`, and gas pricing fields are fetched from the network automatically if omitted. Use this when you have a transaction object from an external source (e.g. a DeFi aggregator) or when constructing a transaction directly.
 
-**Important:** This submits the transaction to the network immediately — it is irreversible.
+**Important:** This is a two-step flow. First call without `confirmed` to simulate. Only call again with `confirmed: true` after explicit user approval.
 
 **Parameters:**
 
@@ -80,7 +118,8 @@ Sign and broadcast an EVM transaction using the authenticated wallet. Pass the f
   "chainId": 1,
   "to": "0xRecipientAddress",
   "value": "0x38D7EA4C68000",
-  "derivationIndex": 0
+  "derivationIndex": 0,
+  "confirmed": false
 }
 ```
 
@@ -117,9 +156,23 @@ Sign EIP-712 typed structured data with the EVM wallet. Used for DeFi permit sig
 }
 ```
 
+### get_token_allowance
+
+Check the ERC-20 allowance granted by an owner to a spender on a supported EVM chain. Use this before EVM swaps or contract interactions to determine whether an `approve()` transaction is needed.
+
+**Parameters:**
+
+```json
+{
+  "chainId": 8453,
+  "tokenAddress": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+  "spenderAddress": "0x0000000000001ff3684f28c67538d4d072c22734"
+}
+```
+
 ### transfer_tokens
 
-Transfer native tokens or fungible tokens on Solana and EVM chains. **Warning:** This tool builds, signs, and sends transactions immediately and irreversibly once called.
+Transfer native tokens or fungible tokens on Solana and EVM chains. **This tool is simulation-first.** First call without `confirmed` to preview the transfer. Only call again with `confirmed: true` after explicit user approval.
 
 **Parameters:**
 
@@ -131,6 +184,7 @@ Transfer native tokens or fungible tokens on Solana and EVM chains. **Warning:**
 - `decimals`: (Optional) Token decimals — Solana fetches from chain if omitted; ERC-20 requires this when `amountUnit: "ui"`
 - `derivationIndex`: Account derivation index (default: 0)
 - `createAssociatedTokenAccount`: (Solana only) Create destination ATA if missing (default: true)
+- `confirmed`: Set to `true` only after the user approves the simulation preview
 
 **Example (SOL):**
 
@@ -162,7 +216,8 @@ Transfer native tokens or fungible tokens on Solana and EVM chains. **Warning:**
 1. Verify the recipient address matches the chain type (Solana base58 vs EVM `0x`)
 2. Confirm balance covers amount + fees (`get_token_balances`)
 3. For ERC-20: confirm `decimals` value is correct
-4. Get explicit user confirmation before sending
+4. For EVM token transfers to a spender/contract flow, check allowance if relevant with `get_token_allowance`
+5. Get explicit user confirmation before sending
 
 ### buy_token
 
@@ -180,7 +235,7 @@ Fetch a swap quote from Phantom's routing engine. Supports Solana same-chain, EV
 - `amountUnit`: `"ui"` for token units, `"base"` for atomic units (default: `"base"`)
 - `exactOut`: If true, `amount` is the buy amount instead of sell amount
 - `slippageTolerance`: Max slippage in percent (0-100)
-- `execute`: Sign and send immediately. **Not supported for cross-chain.** Default: false
+- `execute`: Sign and send immediately after the user approves the quote. Default: false
 - `derivationIndex`: Account derivation index (default: 0)
 - `quoteApiUrl`: Phantom-compatible API override. Leave unset for normal use.
 
@@ -226,10 +281,42 @@ Fetch a swap quote from Phantom's routing engine. Supports Solana same-chain, EV
 **Important Notes:**
 
 - `execute: false` — returns quote only (safe, no transaction sent)
-- `execute: true` — immediately signs and broadcasts (irreversible); not available for cross-chain
-- Cross-chain: the response contains `steps` for the agent to execute individually
+- `execute: true` — signs and broadcasts the initiation transaction immediately after approval
+- For EVM swaps, use `get_token_allowance` when you need to check whether the sell token requires an ERC-20 approval
+- Cross-chain quotes may include `steps` and `requiredApprovals` in the response
 - Always display expected output, fees, and price impact before executing
 - Get explicit user confirmation before setting `execute: true`
+
+### portfolio_rebalance
+
+Analyze and rebalance a portfolio allocation via token swaps. Currently supports Solana only. Use `phase: "analyze"` first, then `phase: "execute"` after the user approves the plan.
+
+**Parameters:**
+
+```json
+{
+  "phase": "analyze"
+}
+```
+
+### Perps
+
+The plugin also exposes Phantom-backed Hyperliquid perp tools:
+
+- `get_perp_markets`
+- `get_perp_account`
+- `get_perp_positions`
+- `get_perp_orders`
+- `get_perp_trade_history`
+- `deposit_to_hyperliquid`
+- `open_perp_position`
+- `close_perp_position`
+- `cancel_perp_order`
+- `update_perp_leverage`
+- `transfer_spot_to_perps`
+- `withdraw_from_perps`
+
+Use the read-only perp tools first to inspect markets, balances, positions, and open orders before any write action.
 
 ## Workflow
 
@@ -238,23 +325,27 @@ Fetch a swap quote from Phantom's routing engine. Supports Solana same-chain, EV
 3. **For financial operations (transfers/swaps)**:
    - Call `get_token_balances` to verify the user has sufficient funds (including ~0.000005 SOL for fees)
    - Fetch quotes or preview transaction details
+   - Use `get_token_allowance` for EVM approval-sensitive flows when relevant
    - Display all details to user (recipient, amount, fees, expected outcome)
    - **Get explicit confirmation from user before proceeding**
-   - Only then call the execution tool (`transfer_tokens`, or `buy_token` with `execute: true`)
-4. **Execute the appropriate tool** — use `get_wallet_addresses`, `sign_solana_message`, `sign_evm_personal_message`, `send_solana_transaction`, `send_evm_transaction`, etc.
+   - For `send_solana_transaction`, `send_evm_transaction`, and `transfer_tokens`, do the simulation call first and only then the `confirmed: true` execution call
+   - Only then call the execution tool (`transfer_tokens` with `confirmed: true`, `send_*_transaction` with `confirmed: true`, or `buy_token` with `execute: true`)
+4. **Execute the appropriate tool** — use `get_wallet_addresses`, `sign_solana_message`, `sign_evm_personal_message`, `simulate_transaction`, `send_solana_transaction`, `send_evm_transaction`, etc.
 5. **Present results clearly** — explain the outcome in user-friendly language
 
 ## Safety Considerations
 
 **Critical: Confirmation Before Execution**
 
-For `transfer_tokens`, `buy_token` with `execute: true`, `send_solana_transaction`, and `send_evm_transaction`:
+For `transfer_tokens`, `buy_token` with `execute: true`, `send_solana_transaction`, `send_evm_transaction`, and all perp write tools:
 
 1. **NEVER call these tools without explicit user confirmation**
 2. Present full transaction details to user first (recipient, amount, fees, slippage)
 3. Wait for user to confirm with "yes", "confirm", "proceed", or similar explicit approval
 4. If user says "no" or expresses uncertainty, do NOT proceed
-5. These tools execute and broadcast immediately — there is no undo
+5. These tools execute irreversible on-chain or exchange actions — there is no undo
+
+For `send_solana_transaction`, `send_evm_transaction`, and `transfer_tokens`, always use the built-in simulation step first unless the user explicitly wants to skip it and understands the risk.
 
 **Address Validation:**
 
@@ -273,6 +364,7 @@ For `transfer_tokens`, `buy_token` with `execute: true`, `send_solana_transactio
 - Explain what signing a transaction or message means
 - Be transparent about network fees, DEX fees, and any other costs
 - Show expected transaction time (Solana: 1-2 seconds typically)
+- For simulations, explain warnings, blocking conditions, and expected asset changes in plain language
 
 **Error Handling:**
 

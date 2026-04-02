@@ -34,6 +34,8 @@
     "client-demo-app",
     "@phantom/server-sdk-examples",
     "@phantom/react-native-sdk-example",
-    "@phantom/with-modal"
+    "@phantom/with-modal",
+    "with-nextjs",
+    "with-wagmi"
   ]
 }

@@ -61,8 +61,9 @@ const config: EmbeddedProviderConfig = {
   embeddedWalletType: "user-wallet", // or 'app-wallet'
   addressTypes: ["solana", "ethereum"],
   authOptions: {
-    authUrl: "https://auth.phantom.app",
+    authUrl: "https://connect.phantom.app/login/start",
     redirectUrl: "https://your-app.com/callback",
+    authApiBaseUrl: "https://auth.phantom.app",
   },
 };
 
@@ -275,7 +276,8 @@ interface EmbeddedProviderConfig {
   // Optional
   authOptions?: {
     authUrl?: string; // Custom auth URL
-    redirectUrl?: string; // OAuth redirect URL
+    redirectUrl: string?; // OAuth redirect URL
+    authUrl?: string; // Custom OAuth URL
   };
 }
 ```

@@ -15,7 +15,12 @@ import {
   type EmbeddedProviderAuthType,
   EMBEDDED_PROVIDER_AUTH_TYPES,
 } from "@phantom/embedded-provider-core";
-import { DEFAULT_WALLET_API_URL, DEFAULT_EMBEDDED_WALLET_TYPE, DEFAULT_AUTH_URL } from "@phantom/constants";
+import {
+  DEFAULT_WALLET_API_URL,
+  DEFAULT_EMBEDDED_WALLET_TYPE,
+  DEFAULT_AUTH_URL,
+  DEFAULT_AUTH_API_BASE_URL,
+} from "@phantom/constants";
 import { isAuthFailureCallback, isAuthCallbackUrl } from "./utils/auth-callback";
 import { getDeeplinkToPhantom } from "./utils/deeplink";
 export interface ProviderPreference {
@@ -500,6 +505,7 @@ export class ProviderManager implements EventEmitter {
 
       const apiBaseUrl = this.config.apiBaseUrl || DEFAULT_WALLET_API_URL;
       const authUrl = this.config.authOptions?.authUrl || DEFAULT_AUTH_URL;
+      const authApiBaseUrl = this.config.authOptions?.authApiBaseUrl || DEFAULT_AUTH_API_BASE_URL;
 
       provider = new EmbeddedProvider({
         apiBaseUrl,
@@ -508,8 +514,8 @@ export class ProviderManager implements EventEmitter {
           ...(this.config.authOptions || {}),
           authUrl,
           redirectUrl: this.config.authOptions?.redirectUrl || this.getValidatedCurrentUrl(),
+          authApiBaseUrl,
         },
-        unstable__auth2Options: this.config.unstable__auth2Options,
         embeddedWalletType: embeddedWalletType || DEFAULT_EMBEDDED_WALLET_TYPE,
         addressTypes: this.config.addressTypes || [AddressType.solana],
       });

@@ -273,6 +273,7 @@ describe("createConnectStartUrl()", () => {
           code_challenge_method: "S256",
           state: "session-xyz",
           login_hint: "google:auth2",
+          should_migrate: true,
         }),
         keyPair: MOCK_KEY_PAIR,
       }),
@@ -304,6 +305,13 @@ describe("createConnectStartUrl()", () => {
     await createConnectStartUrl({ ...baseInput, provider: "device" });
     expect(mockCreateAuth2RequestJar).toHaveBeenCalledWith(
       expect.objectContaining({ payload: expect.not.objectContaining({ login_hint: expect.anything() }) }),
+    );
+  });
+
+  it("always sets should_migrate to true in the JAR payload", async () => {
+    await createConnectStartUrl(baseInput);
+    expect(mockCreateAuth2RequestJar).toHaveBeenCalledWith(
+      expect.objectContaining({ payload: expect.objectContaining({ should_migrate: true }) }),
     );
   });
 
@@ -1077,7 +1085,7 @@ describe("_getOrCreateAppWallet()", () => {
     expect(kms.getOrCreateWalletWithTag).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: "org-abc",
-        walletName: "App Wallet (my-app)",
+        walletName: "App Wallet",
         tag: "my-app",
       }),
     );

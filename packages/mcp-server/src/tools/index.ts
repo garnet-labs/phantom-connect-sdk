@@ -16,6 +16,7 @@ import { sendEvmTransactionTool } from "./send-evm-transaction.js";
 import { signSolanaMessageTool } from "./sign-solana-message.js";
 import { signEvmPersonalMessageTool } from "./sign-evm-personal-message.js";
 import { signEvmTypedDataTool } from "./sign-evm-typed-data.js";
+import { simulateTransactionTool } from "./simulate-transaction.js";
 import { portfolioRebalanceTool } from "./portfolio-rebalance.js";
 import { getPerpMarketsTool } from "./get-perp-markets.js";
 import { getPerpAccountTool } from "./get-perp-account.js";
@@ -30,6 +31,7 @@ import { transferSpotToPerpsTool } from "./transfer-spot-to-perps.js";
 import { depositToHyperliquidTool } from "./deposit-to-hyperliquid.js";
 import { withdrawFromPerpsTool } from "./withdraw-from-perps.js";
 import { payApiAccessTool } from "./pay-api-access.js";
+import { getTokenAllowanceTool } from "./get-token-allowance.js";
 import type { ToolHandler } from "./types.js";
 
 /**
@@ -41,6 +43,7 @@ export const tools: ToolHandler[] = [
   getWalletAddressesTool,
   getConnectionStatusTool,
   getTokenBalancesTool,
+  simulateTransactionTool,
   // Solana tools
   sendSolanaTransactionTool,
   signSolanaMessageTool,
@@ -51,6 +54,7 @@ export const tools: ToolHandler[] = [
   sendEvmTransactionTool,
   signEvmPersonalMessageTool,
   signEvmTypedDataTool,
+  getTokenAllowanceTool,
   // Perps tools (read)
   getPerpMarketsTool,
   getPerpAccountTool,
