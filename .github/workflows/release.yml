@@ -44,12 +44,6 @@ jobs:
       - name: Build
         run: yarn build
 
-      - name: Verify MCP package installs cleanly
-        run: yarn workspace @phantom/mcp-server test:pack
-        env:
-          PHANTOM_AUTH_BASE_URL: http://127.0.0.1:1
-          PHANTOM_API_BASE_URL: http://127.0.0.1:1
-
       - name: MCP server smoke test
         run: yarn workspace @phantom/mcp-server test:smoke
         env:
@@ -76,3 +70,9 @@ jobs:
           commitMode: git-cli
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify MCP package installs cleanly
+        run: yarn workspace @phantom/mcp-server test:pack
+        env:
+          PHANTOM_AUTH_BASE_URL: http://127.0.0.1:1
+          PHANTOM_API_BASE_URL: http://127.0.0.1:1
