@@ -30,9 +30,11 @@ const mockSessionManagerInstance = {
   resetSession: jest.fn().mockResolvedValue(undefined),
   getClient: jest.fn(),
   getSession: jest.fn(),
+  getOAuthHeaders: jest.fn().mockReturnValue({}),
 };
 
 const mockSetHeaders = jest.fn();
+const mockSetGetHeaders = jest.fn();
 const mockSetPaymentHandler = jest.fn();
 
 jest.mock("@modelcontextprotocol/sdk/server/index.js", () => ({
@@ -61,6 +63,7 @@ jest.mock("@phantom/phantom-api-client", () => {
     ...actual,
     PhantomApiClient: jest.fn().mockImplementation(() => ({
       setHeaders: mockSetHeaders,
+      setGetHeaders: mockSetGetHeaders,
       setPaymentHandler: mockSetPaymentHandler,
     })),
   };
@@ -75,6 +78,7 @@ beforeEach(() => {
   mockConnect.mockClear();
   mockSetRequestHandler.mockClear();
   mockSetHeaders.mockClear();
+  mockSetGetHeaders.mockClear();
   mockSetPaymentHandler.mockClear();
   mockGetTool.mockReset();
   for (const tool of mockTools) {

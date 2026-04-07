@@ -136,6 +136,71 @@ describe("PhantomApiClient", () => {
     });
   });
 
+  describe("setGetHeaders()", () => {
+    it("includes dynamic header returned by the callback on GET", async () => {
+      const dynamicClient = new PhantomApiClient({ baseUrl: "https://api.phantom.app" });
+      dynamicClient.setGetHeaders(() => ({ authorization: "Bearer token-abc" }));
+      const spy = mockFetch(200, {});
+      await dynamicClient.get("/path");
+      const calledHeaders = ((spy.mock.calls[0] as unknown[])[1] as RequestInit).headers as Record<string, string>;
+      expect(calledHeaders["authorization"]).toBe("Bearer token-abc");
+    });
+
+    it("includes dynamic header returned by the callback on POST", async () => {
+      const dynamicClient = new PhantomApiClient({ baseUrl: "https://api.phantom.app" });
+      dynamicClient.setGetHeaders(() => ({ authorization: "Bearer token-post" }));
+      const spy = mockFetch(200, {});
+      await dynamicClient.post("/path", {});
+      const calledHeaders = ((spy.mock.calls[0] as unknown[])[1] as RequestInit).headers as Record<string, string>;
+      expect(calledHeaders["authorization"]).toBe("Bearer token-post");
+    });
+
+    it("calls the callback on every request so token changes are reflected", async () => {
+      const dynamicClient = new PhantomApiClient({ baseUrl: "https://api.phantom.app" });
+      let token = "token-v1";
+      dynamicClient.setGetHeaders(() => ({ authorization: `Bearer ${token}` }));
+
+      const spy = mockFetch(200, {});
+      await dynamicClient.get("/path");
+      const firstHeaders = ((spy.mock.calls[0] as unknown[])[1] as RequestInit).headers as Record<string, string>;
+      expect(firstHeaders["authorization"]).toBe("Bearer token-v1");
+
+      token = "token-v2";
+      await dynamicClient.get("/path");
+      const secondHeaders = ((spy.mock.calls[1] as unknown[])[1] as RequestInit).headers as Record<string, string>;
+      expect(secondHeaders["authorization"]).toBe("Bearer token-v2");
+    });
+
+    it("omits dynamic header keys whose value is undefined", async () => {
+      const dynamicClient = new PhantomApiClient({ baseUrl: "https://api.phantom.app" });
+      dynamicClient.setGetHeaders(() => ({ authorization: "Bearer token", "x-optional": undefined }));
+      const spy = mockFetch(200, {});
+      await dynamicClient.get("/path");
+      const calledHeaders = ((spy.mock.calls[0] as unknown[])[1] as RequestInit).headers as Record<string, string>;
+      expect(calledHeaders["authorization"]).toBe("Bearer token");
+      expect(calledHeaders["x-optional"]).toBeUndefined();
+    });
+
+    it("dynamic headers override static headers with the same key", async () => {
+      const dynamicClient = new PhantomApiClient({ baseUrl: "https://api.phantom.app" });
+      dynamicClient.setHeaders({ authorization: "Bearer static-token" });
+      dynamicClient.setGetHeaders(() => ({ authorization: "Bearer dynamic-token" }));
+      const spy = mockFetch(200, {});
+      await dynamicClient.get("/path");
+      const calledHeaders = ((spy.mock.calls[0] as unknown[])[1] as RequestInit).headers as Record<string, string>;
+      expect(calledHeaders["authorization"]).toBe("Bearer dynamic-token");
+    });
+
+    it("per-request extra headers override dynamic headers", async () => {
+      const dynamicClient = new PhantomApiClient({ baseUrl: "https://api.phantom.app" });
+      dynamicClient.setGetHeaders(() => ({ "x-custom": "from-dynamic" }));
+      const spy = mockFetch(200, {});
+      await dynamicClient.get("/path", { headers: { "x-custom": "from-extra" } });
+      const calledHeaders = ((spy.mock.calls[0] as unknown[])[1] as RequestInit).headers as Record<string, string>;
+      expect(calledHeaders["x-custom"]).toBe("from-extra");
+    });
+  });
+
   describe("setPaymentSignature()", () => {
     it("includes X-Payment header in subsequent requests after setPaymentSignature", async () => {
       const payingClient = new PhantomApiClient({ baseUrl: "https://api.phantom.app" });

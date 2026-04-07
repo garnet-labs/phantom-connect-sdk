@@ -68,6 +68,7 @@ export class SessionManager {
 
   private session: SessionData | null = null;
   private client: PhantomClient | null = null;
+  private stamper: InstanceType<typeof Auth2Stamper> | null = null;
 
   private createMcpAnalyticsHeaders(appId: string): ServerSdkHeaders {
     return {
@@ -256,6 +257,7 @@ export class SessionManager {
     await this.clearDeviceCodeAuthState();
     this.session = null;
     this.client = null;
+    this.stamper = null;
 
     // Re-authenticate
     await this.authenticate();
@@ -427,6 +429,7 @@ export class SessionManager {
       redirectUri: "",
     });
     await stamper.init();
+    this.stamper = stamper;
     if (!stamper.bearerToken || !stamper.auth2Token) {
       this.logger.warn(
         "device-code auth2 stamper state is missing tokens — deleting stale session and re-authenticating",
@@ -453,6 +456,19 @@ export class SessionManager {
       },
       stamper,
     );
+  }
+
+  /**
+   * Returns dynamic OAuth headers for the current device-code session.
+   * Called on every request so the bearer token is always fresh (handles refresh).
+   * Returns an empty object for SSO sessions or when no stamper is available.
+   */
+  getOAuthHeaders(): Record<string, string | undefined> {
+    if (this.session?.authFlow !== "device-code" || !this.stamper) return {};
+    return {
+      authorization: this.stamper.bearerToken ?? undefined,
+      "x-auth-user-id": this.stamper.auth2Token?.sub,
+    };
   }
 
   private async clearDeviceCodeAuthState(): Promise<void> {

@@ -43,6 +43,7 @@ export class PhantomApiClient {
   private staticHeaders: Record<string, string> = {};
   private paymentSignature: string | null = null;
   private paymentHandler: PaymentHandler | null = null;
+  private getDynamicHeadersFn: (() => Record<string, string | undefined>) | null = null;
 
   constructor(options: PhantomApiClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, "");
@@ -65,6 +66,15 @@ export class PhantomApiClient {
    */
   setHeaders(headers: Record<string, string>): void {
     this.staticHeaders = { ...this.staticHeaders, ...headers };
+  }
+
+  /**
+   * Set a callback invoked on every request to supply dynamic headers (e.g. a
+   * refreshable OAuth bearer token). Dynamic headers are merged after static
+   * headers so they can override them. Undefined values are omitted.
+   */
+  setGetHeaders(fn: () => Record<string, string | undefined>): void {
+    this.getDynamicHeadersFn = fn;
   }
 
   /** Stored after a successful payment — sent as X-Payment on all subsequent requests */
@@ -147,8 +157,15 @@ export class PhantomApiClient {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       ...this.staticHeaders,
-      ...extra,
     };
+    if (this.getDynamicHeadersFn) {
+      for (const [k, v] of Object.entries(this.getDynamicHeadersFn())) {
+        if (v !== undefined) headers[k] = v;
+      }
+    }
+    if (extra) {
+      Object.assign(headers, extra);
+    }
     if (this.paymentSignature) {
       headers["X-Payment"] = this.paymentSignature;
     }

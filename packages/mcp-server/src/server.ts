@@ -473,6 +473,7 @@ export class PhantomMCPServer {
       staticHeaders["X-Wallet-Address"] = solanaAddress;
     }
     this.apiClient.setHeaders(staticHeaders);
+    this.apiClient.setGetHeaders(() => this.sessionManager.getOAuthHeaders());
 
     this.apiClient.setPaymentHandler(async payment => {
       this.logger.info(`Paying ${payment.amount} ${payment.token} to unlock API access`);
