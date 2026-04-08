@@ -307,7 +307,26 @@ export class PhantomMCPServer {
               this.logger.warn(`Tool retry also returned 401 — resetting session`);
             }
           } else if (refreshed) {
-            this.logger.warn(`Token refreshed but ${toolName} is not safe to replay automatically — resetting session`);
+            this.logger.info(
+              `Token refreshed but ${toolName} is not safe to replay automatically — asking caller to retry`,
+            );
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: JSON.stringify(
+                    {
+                      error:
+                        "Session token was refreshed successfully. Retry the same request now; re-authentication is not required.",
+                      code: "SESSION_REFRESHED_RETRY_REQUIRED",
+                    },
+                    null,
+                    2,
+                  ),
+                },
+              ],
+              isError: true,
+            };
           }
 
           this.logger.warn(`Token refresh failed or retry 401'd — resetting session`);

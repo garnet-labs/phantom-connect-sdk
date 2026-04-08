@@ -1,6 +1,6 @@
 {
   "name": "@phantom/phantom-openclaw-plugin",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Phantom Embedded Wallet — sign transactions, transfer tokens, and swap on Solana and Ethereum. Powered by Phantom.",
   "repository": {
     "type": "git",

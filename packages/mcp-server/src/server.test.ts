@@ -419,7 +419,7 @@ describe("PhantomMCPServer", () => {
     expect(toolHandler).toHaveBeenCalledTimes(1);
   });
 
-  it("does not retry mutating tools after a successful token refresh", async () => {
+  it("does not retry mutating tools after a successful token refresh and asks the caller to retry", async () => {
     const toolHandler = jest.fn().mockRejectedValue({ response: { status: 401 } });
     mockGetTool.mockReturnValue({
       name: "mock_tool",
@@ -438,8 +438,25 @@ describe("PhantomMCPServer", () => {
     const parsed = JSON.parse(result.content[0].text);
 
     expect(mockSessionManagerInstance.tryRefreshSession).toHaveBeenCalledTimes(1);
-    expect(mockSessionManagerInstance.resetSession).toHaveBeenCalledTimes(1);
+    expect(mockSessionManagerInstance.resetSession).not.toHaveBeenCalled();
     expect(toolHandler).toHaveBeenCalledTimes(1);
-    expect(parsed.code).toBe("AUTH_EXPIRED");
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              error:
+                "Session token was refreshed successfully. Retry the same request now; re-authentication is not required.",
+              code: "SESSION_REFRESHED_RETRY_REQUIRED",
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+      isError: true,
+    });
+    expect(parsed.code).toBe("SESSION_REFRESHED_RETRY_REQUIRED");
   });
 });
