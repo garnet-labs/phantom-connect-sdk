@@ -245,6 +245,19 @@ export class SessionManager {
   }
 
   /**
+   * Attempts to refresh the OAuth tokens for the current device-code session.
+   * Used to recover from a 401 before falling back to full re-authentication.
+   *
+   * @returns true if tokens were refreshed successfully, false otherwise
+   */
+  tryRefreshSession(): Promise<boolean> {
+    if (this.session?.authFlow !== "device-code" || !this.stamper) {
+      return Promise.resolve(false);
+    }
+    return this.stamper.maybeRefreshTokens();
+  }
+
+  /**
    * Resets the session by clearing stored data and re-authenticating
    *
    * @throws Error if authentication fails

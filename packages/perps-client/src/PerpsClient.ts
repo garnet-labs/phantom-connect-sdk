@@ -23,6 +23,9 @@ import type {
   HlUpdateLeverageAction,
   Eip712TypedData,
   PerpsLogger,
+  WithdrawFromSpotParams,
+  WithdrawFromSpotResult,
+  RelayWithdrawalV2Quote,
 } from "./types.js";
 import { noopLogger } from "./types.js";
 import { PerpsApi } from "./api.js";
@@ -36,7 +39,14 @@ import {
   formatSize,
   resolveLimitPrice,
 } from "./actions.js";
-import { HYPERCORE_MAINNET_CHAIN_ID, MARKET_ORDER_SLIPPAGE } from "./constants.js";
+import {
+  HYPERCORE_MAINNET_CHAIN_ID,
+  MARKET_ORDER_SLIPPAGE,
+  HYPERLIQUID_SIGN_TRANSACTION_DOMAIN,
+  HYPERLIQUID_MAINNET_CHAIN_ID,
+  EIP712_DOMAIN_TYPE,
+  USDC_ADDRESSES,
+} from "./constants.js";
 import { assertPositiveDecimalString } from "./validate.js";
 
 export interface PerpsClientOptions {
@@ -311,6 +321,81 @@ export class PerpsClient {
     return { status: "ok", data: result };
   }
 
+  /**
+   * Returns the Relay V2 bridge quote for withdrawing USDC from the Hyperliquid spot
+   * wallet to an external chain. Use this to preview amounts before executing.
+   */
+  async getWithdrawFromSpotQuote(params: WithdrawFromSpotParams): Promise<RelayWithdrawalV2Quote> {
+    assertPositiveDecimalString(params.amountUsdc, "amountUsdc");
+    const sellAmount = Math.round(parseFloat(params.amountUsdc) * 1e6).toString();
+    const buyToken = params.buyToken ?? this.resolveUsdcBuyToken(params.destinationChainId);
+    const takerDestination = `${params.destinationChainId}/address:${params.destinationAddress}`;
+    return this.api.getBridgeInitialize({
+      buyToken,
+      takerDestination,
+      sellAmount,
+      sourceWallet: this.getUserCaip19(),
+    });
+  }
+
+  /**
+   * Bridges USDC from the Hyperliquid spot wallet to an external chain via the Relay V2 bridge.
+   *
+   * Two-step signing flow:
+   *   1. Signs an EIP-712 "authorize" message (Relay nonce mapping) and posts it to the backend.
+   *   2. Signs the Hyperliquid "sendAsset" EIP-712 action (sends USDC to Relay's bridge address)
+   *      and submits it to Hyperliquid via the backend's spot/send endpoint.
+   */
+  async withdrawFromSpot(params: WithdrawFromSpotParams): Promise<WithdrawFromSpotResult> {
+    this.logger.info(`withdrawFromSpot amountUsdc=${params.amountUsdc} dest=${params.destinationChainId}`);
+
+    const quote = await this.getWithdrawFromSpotQuote(params);
+    const { authorizeStep, depositStep } = quote;
+
+    // Step 1: sign the EIP-712 authorize message and post to Relay via backend
+    this.logger.info("withdrawFromSpot: signing authorizeStep");
+    const authSignatureHex = await this.signTypedData({
+      domain: authorizeStep.domain,
+      types: authorizeStep.types,
+      primaryType: authorizeStep.primaryType,
+      message: authorizeStep.message,
+    });
+    await this.api.postAuthorize(authorizeStep.postEndpoint, {
+      ...authorizeStep.postBody,
+      signature: authSignatureHex,
+    });
+
+    // Step 2: sign the sendAsset EIP-712 action and submit to Hyperliquid via backend
+    this.logger.info("withdrawFromSpot: signing depositStep (sendAsset)");
+    const action = depositStep.action;
+    const signatureChainId =
+      typeof action.signatureChainId === "string"
+        ? parseInt(action.signatureChainId, 16)
+        : HYPERLIQUID_MAINNET_CHAIN_ID;
+
+    const depositSig = await this.sign({
+      domain: { ...HYPERLIQUID_SIGN_TRANSACTION_DOMAIN, chainId: signatureChainId },
+      primaryType: depositStep.eip712PrimaryType,
+      types: { EIP712Domain: EIP712_DOMAIN_TYPE, ...depositStep.eip712Types },
+      message: action,
+    });
+
+    const sendResult = await this.api.postSpotSend({
+      action,
+      nonce: depositStep.nonce,
+      signature: depositSig,
+      taker: this.getUserCaip19(),
+    });
+
+    this.logger.info(`withdrawFromSpot complete requestId=${quote.requestId}`);
+    return {
+      requestId: quote.requestId,
+      details: quote.details,
+      checkEndpoint: depositStep.checkEndpoint,
+      execution: sendResult,
+    };
+  }
+
   // ── Internal helpers ──────────────────────────────────────────────────────
 
   /**
@@ -327,6 +412,17 @@ export class PerpsClient {
 
   private getUserCaip19(): string {
     return `${HYPERCORE_MAINNET_CHAIN_ID}/address:${this.evmAddress}`;
+  }
+
+  private resolveUsdcBuyToken(destinationChainId: string): string {
+    const usdcAddress = USDC_ADDRESSES[destinationChainId];
+    if (!usdcAddress) {
+      throw new Error(
+        `No default USDC address for chain ${destinationChainId}. ` +
+          `Pass buyToken explicitly. Known chains: ${Object.keys(USDC_ADDRESSES).join(", ")}`,
+      );
+    }
+    return `${destinationChainId}/address:${usdcAddress}`;
   }
 
   private async sign(typedData: Eip712TypedData): Promise<ReturnType<typeof splitSignature>> {

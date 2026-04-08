@@ -181,6 +181,7 @@ export class PhantomMCPServer {
     // Handle tools/call request
     this.server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest) => {
       const toolName = request.params.name;
+      const tool = getTool(toolName);
       this.logger.info(`Handling tools/call request for: ${toolName}`);
 
       // Wait for startup initialization to complete (OAuth browser flow may still
@@ -192,7 +193,6 @@ export class PhantomMCPServer {
 
       try {
         // Step 1: Get tool by name
-        const tool = getTool(toolName);
         if (!tool) {
           const error = `Unknown tool: ${toolName}`;
           this.logger.error(error);
@@ -281,10 +281,36 @@ export class PhantomMCPServer {
           ],
         };
       } catch (error) {
-        // Step 6: On auth failure (401/403), reset the session to trigger re-authentication.
-        // The agent receives an actionable error and should retry the request after sign-in.
+        // Step 6: On auth failure (401/403), first try to refresh the OAuth token
+        // (device-code flow only). If the refresh succeeds, retry the tool once.
+        // Only fall back to full re-authentication if the refresh fails or the retry also 401s.
         if (isAuthError(error)) {
-          this.logger.warn(`Auth error (401/403) on tool ${toolName} — resetting session`);
+          this.logger.warn(`Auth error (401/403) on tool ${toolName} — attempting token refresh`);
+          const refreshed = await this.sessionManager.tryRefreshSession();
+          const canRetrySafely = tool?.annotations?.readOnlyHint === true || tool?.annotations?.idempotentHint === true;
+          if (refreshed && canRetrySafely) {
+            this.logger.info(`Token refreshed — retrying tool ${toolName}`);
+            try {
+              const retryContext = {
+                client: this.sessionManager.getClient(),
+                session: this.sessionManager.getSession(),
+                logger: this.logger.child(toolName),
+                apiClient: this.apiClient,
+              };
+              const retryResult = await tool.handler(request.params.arguments ?? {}, retryContext);
+              this.logger.info(`Tool retry successful: ${toolName}`);
+              return {
+                content: [{ type: "text" as const, text: JSON.stringify(retryResult, null, 2) }],
+              };
+            } catch (retryError) {
+              if (!isAuthError(retryError)) throw retryError;
+              this.logger.warn(`Tool retry also returned 401 — resetting session`);
+            }
+          } else if (refreshed) {
+            this.logger.warn(`Token refreshed but ${toolName} is not safe to replay automatically — resetting session`);
+          }
+
+          this.logger.warn(`Token refresh failed or retry 401'd — resetting session`);
           await this.sessionManager.resetSession();
           return {
             content: [
@@ -457,7 +483,7 @@ export class PhantomMCPServer {
     this.logger.info("Wiring payment handler into apiClient");
 
     // Set static headers — wallet address and app id are known after session init
-    const appId = process.env.PHANTOM_APP_ID ?? process.env.PHANTOM_CLIENT_ID;
+    const appId = process.env.PHANTOM_APP_ID ?? process.env.PHANTOM_CLIENT_ID ?? session.appId;
     const addresses = await client.getWalletAddresses(session.walletId);
     const solanaAddress = addresses.find(a => a.addressType === AddressType.solana)?.address;
     const staticHeaders: Record<string, string> = {

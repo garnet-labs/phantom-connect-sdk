@@ -30,6 +30,7 @@ import { updatePerpLeverageTool } from "./update-perp-leverage.js";
 import { transferSpotToPerpsTool } from "./transfer-spot-to-perps.js";
 import { depositToHyperliquidTool } from "./deposit-to-hyperliquid.js";
 import { withdrawFromPerpsTool } from "./withdraw-from-perps.js";
+import { withdrawFromHyperliquidSpotTool } from "./withdraw-from-hyperliquid-spot.js";
 import { payApiAccessTool } from "./pay-api-access.js";
 import { getTokenAllowanceTool } from "./get-token-allowance.js";
 import type { ToolHandler } from "./types.js";
@@ -69,6 +70,7 @@ export const tools: ToolHandler[] = [
   transferSpotToPerpsTool,
   withdrawFromPerpsTool,
   depositToHyperliquidTool,
+  withdrawFromHyperliquidSpotTool,
   payApiAccessTool,
 ];
 

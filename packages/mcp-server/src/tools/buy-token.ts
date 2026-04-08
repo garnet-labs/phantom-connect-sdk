@@ -20,6 +20,7 @@ export const buyTokenTool: ToolHandler = {
   description:
     "Phantom Wallet — Fetches an optimized swap quote from Phantom's routing engine and can optionally execute it. " +
     "Supports same-chain Solana swaps, same-chain EVM swaps (Ethereum, Base, Polygon, Arbitrum, Monad), and cross-chain swaps between Solana and EVM chains. " +
+    "Cross-chain flows work in both directions, including EVM to Solana and Solana to EVM, and can also target Hypercore/Hyperliquid when supported. " +
     "Both sellChainId and buyChainId must be a Solana chain (solana:*), EVM chain (eip155:*), or Hypercore/Hyperliquid (hypercore:*); other namespaces are not supported. " +
     "Use this for ALL swap/exchange operations (e.g. 'swap USDC to SOL', 'buy ETH on Base', 'bridge SOL to ETH'). " +
     "Use sellChainId to specify the source chain and buyChainId for the destination (omit both for Solana, same as before). " +

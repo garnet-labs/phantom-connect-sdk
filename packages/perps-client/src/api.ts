@@ -18,6 +18,7 @@ import type {
   HlOrderResponse,
   HlDefaultResponse,
   HlCancelOrderResponse,
+  RelayWithdrawalV2Quote,
   PerpsLogger,
 } from "./types.js";
 import { noopLogger } from "./types.js";
@@ -181,6 +182,34 @@ export class PerpsApi {
   }): Promise<HlDefaultResponse> {
     this.logger.info(`postTransferUsdcSpotPerp amount=${body.action.amount} toPerp=${body.action.toPerp}`);
     return this.post<HlDefaultResponse>("/swap/v2/transfer-usdc-spot-perp", body);
+  }
+
+  async getBridgeInitialize(params: {
+    buyToken: string;
+    takerDestination: string;
+    sellAmount: string;
+    sourceWallet: string;
+  }): Promise<RelayWithdrawalV2Quote> {
+    this.logger.info(`getBridgeInitialize sellAmount=${params.sellAmount} dest=${params.takerDestination}`);
+    return this.get<RelayWithdrawalV2Quote>("/swap/v2/spot/bridge-initialize", {
+      ...params,
+      bridgeProvider: "RELAY_V2",
+    });
+  }
+
+  async postAuthorize(endpoint: string, body: Record<string, unknown>): Promise<unknown> {
+    this.logger.info(`postAuthorize endpoint=${endpoint}`);
+    return this.post<unknown>(endpoint, body);
+  }
+
+  async postSpotSend(body: {
+    action: Record<string, unknown>;
+    nonce: number;
+    signature: SignatureComponents;
+    taker: string;
+  }): Promise<unknown> {
+    this.logger.info(`postSpotSend nonce=${body.nonce} taker=${body.taker}`);
+    return this.post<unknown>("/swap/v2/spot/send", body);
   }
 }
 

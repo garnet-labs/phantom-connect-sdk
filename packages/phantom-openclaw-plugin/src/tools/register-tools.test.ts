@@ -6,6 +6,21 @@ import { registerPhantomTools } from "./register-tools.js";
 
 type RegisteredTool = Parameters<OpenClawApi["registerTool"]>[0];
 
+const mockSetHeaders = jest.fn();
+const mockSetGetHeaders = jest.fn();
+
+jest.mock("@phantom/phantom-api-client", () => ({
+  PhantomApiClient: jest.fn().mockImplementation(() => ({
+    setHeaders: mockSetHeaders,
+    setGetHeaders: mockSetGetHeaders,
+  })),
+}));
+
+beforeEach(() => {
+  mockSetHeaders.mockReset();
+  mockSetGetHeaders.mockReset();
+});
+
 function registerToolsForTest() {
   const registeredTools: RegisteredTool[] = [];
   const registeredContexts: Array<{ id: string; description: string; content: string }> = [];
@@ -20,7 +35,8 @@ function registerToolsForTest() {
 
   const session = {
     getClient: jest.fn(),
-    getSession: jest.fn(),
+    getSession: jest.fn().mockReturnValue({ appId: "session-client-id", walletId: "wallet-1" }),
+    getOAuthHeaders: jest.fn().mockReturnValue({ authorization: "Bearer token", "x-auth-user-id": "user-1" }),
   } as unknown as PluginSession;
 
   registerPhantomTools(api, session);
@@ -89,7 +105,7 @@ describe("registerPhantomTools schema conversion", () => {
       "Transfers tokens using your Phantom embedded wallet",
     );
     expect(registeredTools.find(tool => tool.name === "buy_token")?.description).toBe(
-      "Fetches swap quotes from Phantom's quotes API and executes via your Phantom wallet",
+      "Fetches same-chain and multichain swap quotes from Phantom's quotes API, including EVM to Solana and Solana to EVM, and executes via your Phantom wallet",
     );
     expect(registeredTools.find(tool => tool.name === "get_wallet_addresses")?.description).toBe(
       "Gets addresses for your Phantom embedded wallet",
@@ -131,5 +147,17 @@ describe("registerPhantomTools schema conversion", () => {
         ),
       },
     ]);
+  });
+
+  it("wires Phantom API headers from session state", () => {
+    registerToolsForTest();
+
+    expect(mockSetHeaders).toHaveBeenCalledWith(
+      expect.objectContaining({
+        "x-api-key": "session-client-id",
+        "X-App-Id": "session-client-id",
+      }),
+    );
+    expect(mockSetGetHeaders).toHaveBeenCalledTimes(1);
   });
 });

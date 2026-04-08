@@ -1,13 +1,5 @@
 # Phantom OpenClaw Plugin
 
-> **⚠️ PREVIEW DISCLAIMER**
->
-> This OpenClaw plugin is currently in **preview** and may break or change at any time without notice.
->
-> **Always use a separate Phantom account specifically for testing with AI agents. These accounts should not contain significant assets.**
->
-> **Phantom makes no guarantees whatsoever around anything your agent may do using this plugin.** Use at your own risk.
-
 Direct integration with Phantom wallet for OpenClaw agents. This plugin wraps the Phantom MCP Server to provide seamless wallet operations including address retrieval, message signing, transaction signing, token transfers, token approval checks, transaction simulations, and token swaps.
 
 ## Overview
@@ -328,8 +320,6 @@ Transfer native tokens or fungible tokens on Solana and EVM chains. By default t
 
 **Simulation response:** When `confirmed` is omitted, the tool returns `status: "pending_confirmation"` with `simulation.expectedChanges`, `warnings`, and optional `block`.
 
-**⚠️ Warning:** Only set `confirmed: true` after the user approves the preview.
-
 ### `buy_token`
 
 Fetch a swap quote from Phantom's routing engine. Supports same-chain Solana, same-chain EVM, and cross-chain swaps between Solana and EVM chains. Optionally execute immediately.
@@ -377,8 +367,6 @@ For EVM swaps, use `get_token_allowance` when you need to check whether the sell
   "execute": true
 }
 ```
-
-**⚠️ Warning:** When `execute: true`, this tool submits transactions immediately and irreversibly.
 
 ---
 
@@ -431,8 +419,6 @@ Swaps tokens to USDC via Phantom's routing engine and transfers the USDC into th
 - `tokenAddress` (string, optional): ERC-20/SPL token address — omit for native SOL or default USDC per chain
 - `walletId` (string, optional), `derivationIndex` (number, optional, default 0)
 
-**⚠️ Warning:** Submits transactions immediately and irreversibly.
-
 ##### `open_perp_position`
 
 Opens a perpetual position. Market orders use 10% slippage (IOC). Limit orders rest on the book (GTC).
@@ -448,8 +434,6 @@ Opens a perpetual position. Market orders use 10% slippage (IOC). Limit orders r
 - `reduceOnly` (boolean, optional): Default false
 - `walletId` (string, optional), `derivationIndex` (number, optional, default 0)
 
-**⚠️ Warning:** Submits transactions immediately and irreversibly.
-
 ##### `close_perp_position`
 
 Closes an open position using a market IOC order. Defaults to 100% close.
@@ -459,8 +443,6 @@ Closes an open position using a market IOC order. Defaults to 100% close.
 - `market` (string, required): Market symbol (e.g. `"BTC"`)
 - `sizePercent` (number, optional): Percentage to close (1–100, default 100)
 - `walletId` (string, optional), `derivationIndex` (number, optional, default 0)
-
-**⚠️ Warning:** Submits transactions immediately and irreversibly.
 
 ##### `cancel_perp_order`
 

@@ -8,6 +8,7 @@ import { tools } from "@phantom/mcp-server";
 import { PhantomApiClient } from "@phantom/phantom-api-client";
 import type { OpenClawApi } from "../client/types.js";
 import type { PluginSession } from "../session.js";
+import * as packageJson from "../../package.json";
 
 /**
  * Convert MCP tool JSON schema to TypeBox schema
@@ -57,9 +58,13 @@ const JSON_SCHEMA_TYPES: readonly JsonSchemaType[] = [
 const PHANTOM_PROVIDER = "phantom";
 const PHANTOM_CONNECTED_MESSAGE =
   "Phantom wallet connected. You can transfer tokens, swap, sign messages, and more across Solana and Ethereum.";
+const ANALYTICS_HEADER_PLATFORM = "x-phantom-platform";
+const ANALYTICS_HEADER_CLIENT = "x-phantom-client";
+const ANALYTICS_HEADER_SDK_VERSION = "x-phantom-sdk-version";
 const TOOL_DESCRIPTION_OVERRIDES: Record<string, string> = {
   transfer_tokens: "Transfers tokens using your Phantom embedded wallet",
-  buy_token: "Fetches swap quotes from Phantom's quotes API and executes via your Phantom wallet",
+  buy_token:
+    "Fetches same-chain and multichain swap quotes from Phantom's quotes API, including EVM to Solana and Solana to EVM, and executes via your Phantom wallet",
   get_wallet_addresses: "Gets addresses for your Phantom embedded wallet",
 };
 
@@ -333,20 +338,26 @@ function addProviderAttribution(result: unknown): unknown {
  */
 export function registerPhantomTools(api: OpenClawApi, session: PluginSession): void {
   const sessionData = session.getSession();
-  const appId = sessionData && typeof sessionData.appId === "string" ? sessionData.appId : undefined;
+  const appId =
+    process.env.PHANTOM_APP_ID ??
+    process.env.PHANTOM_CLIENT_ID ??
+    (sessionData && typeof sessionData.appId === "string" ? sessionData.appId : undefined);
 
   const apiClient = new PhantomApiClient({
     baseUrl: process.env.PHANTOM_API_BASE_URL ?? "https://api.phantom.app",
   });
 
-  const staticHeaders: Record<string, string> = {};
+  const staticHeaders: Record<string, string> = {
+    [ANALYTICS_HEADER_PLATFORM]: "ext-sdk",
+    [ANALYTICS_HEADER_CLIENT]: "mcp",
+    [ANALYTICS_HEADER_SDK_VERSION]: process.env.PHANTOM_VERSION ?? packageJson.version ?? "unknown",
+  };
   if (appId) {
     staticHeaders["x-api-key"] = appId;
     staticHeaders["X-App-Id"] = appId;
   }
-  if (Object.keys(staticHeaders).length > 0) {
-    apiClient.setHeaders(staticHeaders);
-  }
+  apiClient.setHeaders(staticHeaders);
+  apiClient.setGetHeaders(() => session.getOAuthHeaders());
 
   if ("registerContext" in api && typeof api.registerContext === "function") {
     api.registerContext({

@@ -25,7 +25,7 @@ export class Auth2Stamper implements Auth2StamperWithKeyManagement {
   private _refreshToken: string | null = null;
   private _tokenExpiresAt: number | null = null;
 
-  private isRefreshingTokens: boolean = false;
+  private refreshingTokensPromise: Promise<boolean> | null = null;
 
   // Because TOKEN_REFRESH_BUFFER_MS proactively handles refresh, we can safely use void here
   // and return the existing cached values immediately.
@@ -124,43 +124,51 @@ export class Auth2Stamper implements Auth2StamperWithKeyManagement {
 
   /**
    * Checks if tokens should be refreshed and performs a refresh if needed.
-   * Returns void after attempting any necessary refresh.
+   * Returns true if a refresh succeeded, false otherwise.
    */
-  private async maybeRefreshTokens(): Promise<void> {
+  async maybeRefreshTokens(): Promise<boolean> {
+    if (this.refreshingTokensPromise) {
+      return this.refreshingTokensPromise;
+    }
+
     if (
-      this.isRefreshingTokens ||
       !this.refreshConfig ||
       !this._refreshToken ||
       !this._tokenExpiresAt ||
-      // Skip refresh if the token still has plenty of time left.
       Date.now() < this._tokenExpiresAt - TOKEN_REFRESH_BUFFER_MS
     ) {
-      return;
+      return false;
     }
 
-    this.isRefreshingTokens = true;
+    const refreshConfig = this.refreshConfig;
+    const refreshToken = this._refreshToken;
 
-    try {
-      const refreshed = await refreshTokenRequest({
-        authApiBaseUrl: this.refreshConfig.authApiBaseUrl,
-        clientId: this.refreshConfig.clientId,
-        redirectUri: this.refreshConfig.redirectUri,
-        refreshToken: this._refreshToken,
-      });
+    this.refreshingTokensPromise = (async () => {
+      try {
+        const refreshed = await refreshTokenRequest({
+          authApiBaseUrl: refreshConfig.authApiBaseUrl,
+          clientId: refreshConfig.clientId,
+          redirectUri: refreshConfig.redirectUri,
+          refreshToken,
+        });
 
-      await this.setTokens({
-        accessToken: refreshed.accessToken,
-        idType: refreshed.idType,
-        refreshToken: refreshed.refreshToken,
-        expiresInMs: refreshed.expiresInMs,
-      });
-    } catch (error) {
-      console.error("Failed to refresh tokens:", error);
-    } finally {
-      this.isRefreshingTokens = false;
-    }
+        await this.setTokens({
+          accessToken: refreshed.accessToken,
+          idType: refreshed.idType,
+          refreshToken: refreshed.refreshToken,
+          expiresInMs: refreshed.expiresInMs,
+        });
+        return true;
+      } catch (error) {
+        console.error("Failed to refresh tokens:", error);
+        return false;
+      } finally {
+        this.refreshingTokensPromise = null;
+      }
+    })();
+
+    return this.refreshingTokensPromise;
   }
-
   async stamp(params: { data: Buffer; type?: "PKI" } | { data: Buffer; type: "OIDC" }): Promise<string> {
     if (!this._keyPair || !this._keyInfo || !this.auth2Token) {
       throw new Error("Auth2Stamper not initialized. Call init() first.");

@@ -85,4 +85,14 @@ export class PluginSession {
     }
     return this.sessionManager.getSession();
   }
+
+  /**
+   * Get dynamic OAuth headers for authenticated Phantom API requests.
+   */
+  getOAuthHeaders(): Record<string, string | undefined> {
+    if (!this.initialized) {
+      throw new Error("Session not initialized. Call initialize() first.");
+    }
+    return this.sessionManager.getOAuthHeaders();
+  }
 }

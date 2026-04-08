@@ -56,8 +56,9 @@ export const SPOT_SELL_SLIPPAGE = 0.02;
 /** USDC token ID on Hyperliquid spot — no sell step needed when this is the bridged token */
 export const USDC_SPOT_TOKEN_ID = "USDC";
 
-/** Well-known USDC contract addresses on EVM chains */
+/** Well-known USDC contract addresses on supported chains */
 export const USDC_ADDRESSES: Record<string, string> = {
+  "solana:101": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
   "eip155:1": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
   "eip155:8453": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
   "eip155:42161": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",

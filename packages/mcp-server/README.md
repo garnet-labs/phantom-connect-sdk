@@ -1,13 +1,5 @@
 # @phantom/mcp-server
 
-> **⚠️ PREVIEW DISCLAIMER**
->
-> This MCP server is currently in **preview** and may break or change at any time without notice.
->
-> **Always use a separate Phantom account specifically for testing with AI agents. These accounts should not contain significant assets.**
->
-> **Phantom makes no guarantees whatsoever around anything your agent may do using this MCP server.** Use at your own risk.
-
 An MCP (Model Context Protocol) server that provides LLMs like Claude with direct access to Phantom wallet operations. This enables AI assistants to interact with embedded wallets, view addresses, simulate transactions, check token approvals, sign and send transactions, and sign messages across Solana and EVM chains through natural language interactions.
 
 ## Features
@@ -52,7 +44,7 @@ An MCP (Model Context Protocol) server that provides LLMs like Claude with direc
 Use npx to run the server without global installation. This ensures you always use the latest version:
 
 ```bash
-npx -y @phantom/mcp-server
+npx -y @phantom/mcp-server@latest
 ```
 
 ### Option 2: Global Install
@@ -60,7 +52,7 @@ npx -y @phantom/mcp-server
 Install the package globally for faster startup:
 
 ```bash
-npm install -g @phantom/mcp-server
+npm install -g @phantom/mcp-server@latest
 ```
 
 Then run:
@@ -87,7 +79,7 @@ Add the MCP server to your Claude Desktop configuration file:
   "mcpServers": {
     "phantom": {
       "command": "npx",
-      "args": ["-y", "@phantom/mcp-server"]
+      "args": ["-y", "@phantom/mcp-server@latest"]
     }
   }
 }
@@ -153,7 +145,7 @@ In current versions, agents receive a new wallet when they authenticate. That me
 Test the server directly using the MCP inspector:
 
 ```bash
-npx @modelcontextprotocol/inspector npx -y @phantom/mcp-server
+npx @modelcontextprotocol/inspector npx -y @phantom/mcp-server@latest
 ```
 
 This opens an interactive web UI where you can test tool calls without Claude Desktop.
@@ -195,11 +187,6 @@ All EVM tools (`send_evm_transaction`, `sign_evm_personal_message`, `sign_evm_ty
 - Testnet: `sui:testnet`
 
 ## Available Tools
-
-> **Execution Warning**
-> `send_solana_transaction`, `send_evm_transaction`, `transfer_tokens`, `buy_token` (when `execute: true`), `deposit_to_hyperliquid`, `open_perp_position`, `close_perp_position`, `cancel_perp_order`, `update_perp_leverage`, `transfer_spot_to_perps`, and `withdraw_from_perps` all submit transactions immediately and irreversibly. Always verify parameters before calling these tools.
-
----
 
 ### 1. get_connection_status
 

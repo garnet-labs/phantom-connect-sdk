@@ -12,5 +12,8 @@ export type {
   CancelOrderParams,
   UpdateLeverageParams,
   ActionResponse,
+  WithdrawFromSpotParams,
+  WithdrawFromSpotResult,
+  RelayWithdrawalV2Quote,
 } from "./types.js";
 export type { PerpsLogger } from "./types.js";

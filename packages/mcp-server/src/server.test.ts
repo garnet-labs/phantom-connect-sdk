@@ -28,6 +28,7 @@ const mockSetRequestHandler = jest.fn((schema, handler) => {
 const mockSessionManagerInstance = {
   initialize: jest.fn().mockResolvedValue(undefined),
   resetSession: jest.fn().mockResolvedValue(undefined),
+  tryRefreshSession: jest.fn().mockResolvedValue(false),
   getClient: jest.fn(),
   getSession: jest.fn(),
   getOAuthHeaders: jest.fn().mockReturnValue({}),
@@ -86,6 +87,7 @@ beforeEach(() => {
   }
   mockSessionManagerInstance.initialize.mockReset().mockResolvedValue(undefined);
   mockSessionManagerInstance.resetSession.mockReset().mockResolvedValue(undefined);
+  mockSessionManagerInstance.tryRefreshSession.mockReset().mockResolvedValue(false);
   mockSessionManagerInstance.getClient.mockReset();
   mockSessionManagerInstance.getSession.mockReset();
 });
@@ -126,6 +128,7 @@ describe("PhantomMCPServer", () => {
       name: "mock_tool",
       description: "tool",
       inputSchema: { type: "object", properties: {} },
+      annotations: { readOnlyHint: true },
       handler: toolHandler,
     });
     mockSessionManagerInstance.getClient.mockReturnValue({ client: true });
@@ -164,6 +167,7 @@ describe("PhantomMCPServer", () => {
     mockSessionManagerInstance.getSession.mockReturnValue({
       walletId: "wallet-login",
       organizationId: "org-1",
+      appId: "session-client-id",
       authFlow: "sso",
     });
     mockSessionManagerInstance.getClient.mockReturnValue({
@@ -178,26 +182,34 @@ describe("PhantomMCPServer", () => {
     expect(JSON.parse(result.content[0].text)).toEqual(
       expect.objectContaining({ success: true, walletId: "wallet-login", authFlow: "sso" }),
     );
-    expect(mockSetHeaders).toHaveBeenCalledTimes(1);
+    expect(mockSetHeaders).toHaveBeenCalledWith(
+      expect.objectContaining({
+        "x-api-key": "session-client-id",
+        "X-App-Id": "session-client-id",
+      }),
+    );
     expect(mockSetPaymentHandler).toHaveBeenCalledTimes(1);
   });
 
-  it("returns AUTH_EXPIRED and resets session on 401/403 errors", async () => {
+  it("returns AUTH_EXPIRED and resets session when token refresh fails on 401", async () => {
     const toolHandler = jest.fn().mockRejectedValue({ response: { status: 401 } });
     mockGetTool.mockReturnValue({
       name: "mock_tool",
       description: "tool",
       inputSchema: { type: "object", properties: {} },
+      annotations: { readOnlyHint: true },
       handler: toolHandler,
     });
     mockSessionManagerInstance.getClient.mockReturnValue({ client: true });
     mockSessionManagerInstance.getSession.mockReturnValue({ walletId: "wallet-1", organizationId: "org-1" });
+    mockSessionManagerInstance.tryRefreshSession.mockResolvedValue(false);
 
     new PhantomMCPServer();
     const { callTool } = getHandlers();
     const result = await callTool({ params: { name: "mock_tool", arguments: {} } });
     const parsed = JSON.parse(result.content[0].text);
 
+    expect(mockSessionManagerInstance.tryRefreshSession).toHaveBeenCalledTimes(1);
     expect(mockSessionManagerInstance.resetSession).toHaveBeenCalledTimes(1);
     expect(result).toEqual({
       content: [
@@ -216,6 +228,80 @@ describe("PhantomMCPServer", () => {
       ],
       isError: true,
     });
+    expect(parsed.code).toBe("AUTH_EXPIRED");
+  });
+
+  it("retries the tool after a successful token refresh and returns the result", async () => {
+    const retryResult = { success: true, data: "retried" };
+    const toolHandler = jest
+      .fn()
+      .mockRejectedValueOnce({ response: { status: 401 } })
+      .mockResolvedValueOnce(retryResult);
+    mockGetTool.mockReturnValue({
+      name: "mock_tool",
+      description: "tool",
+      inputSchema: { type: "object", properties: {} },
+      annotations: { readOnlyHint: true },
+      handler: toolHandler,
+    });
+    mockSessionManagerInstance.getClient.mockReturnValue({ client: true });
+    mockSessionManagerInstance.getSession.mockReturnValue({ walletId: "wallet-1", organizationId: "org-1" });
+    mockSessionManagerInstance.tryRefreshSession.mockResolvedValue(true);
+
+    new PhantomMCPServer();
+    const { callTool } = getHandlers();
+    const result = await callTool({ params: { name: "mock_tool", arguments: {} } });
+
+    expect(mockSessionManagerInstance.tryRefreshSession).toHaveBeenCalledTimes(1);
+    expect(mockSessionManagerInstance.resetSession).not.toHaveBeenCalled();
+    expect(toolHandler).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(result.content[0].text)).toEqual(retryResult);
+  });
+
+  it("resets session when the retry also returns 401 after a successful token refresh", async () => {
+    const toolHandler = jest.fn().mockRejectedValue({ response: { status: 401 } });
+    mockGetTool.mockReturnValue({
+      name: "mock_tool",
+      description: "tool",
+      inputSchema: { type: "object", properties: {} },
+      annotations: { readOnlyHint: true },
+      handler: toolHandler,
+    });
+    mockSessionManagerInstance.getClient.mockReturnValue({ client: true });
+    mockSessionManagerInstance.getSession.mockReturnValue({ walletId: "wallet-1", organizationId: "org-1" });
+    mockSessionManagerInstance.tryRefreshSession.mockResolvedValue(true);
+
+    new PhantomMCPServer();
+    const { callTool } = getHandlers();
+    const result = await callTool({ params: { name: "mock_tool", arguments: {} } });
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(mockSessionManagerInstance.tryRefreshSession).toHaveBeenCalledTimes(1);
+    expect(mockSessionManagerInstance.resetSession).toHaveBeenCalledTimes(1);
+    expect(toolHandler).toHaveBeenCalledTimes(2);
+    expect(parsed.code).toBe("AUTH_EXPIRED");
+  });
+
+  it("returns AUTH_EXPIRED and resets session on 403 errors when refresh fails", async () => {
+    const toolHandler = jest.fn().mockRejectedValue({ response: { status: 403 } });
+    mockGetTool.mockReturnValue({
+      name: "mock_tool",
+      description: "tool",
+      inputSchema: { type: "object", properties: {} },
+      annotations: { readOnlyHint: true },
+      handler: toolHandler,
+    });
+    mockSessionManagerInstance.getClient.mockReturnValue({ client: true });
+    mockSessionManagerInstance.getSession.mockReturnValue({ walletId: "wallet-1", organizationId: "org-1" });
+    mockSessionManagerInstance.tryRefreshSession.mockResolvedValue(false);
+
+    new PhantomMCPServer();
+    const { callTool } = getHandlers();
+    const result = await callTool({ params: { name: "mock_tool", arguments: {} } });
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(mockSessionManagerInstance.tryRefreshSession).toHaveBeenCalledTimes(1);
+    expect(mockSessionManagerInstance.resetSession).toHaveBeenCalledTimes(1);
     expect(parsed.code).toBe("AUTH_EXPIRED");
   });
 
@@ -314,6 +400,7 @@ describe("PhantomMCPServer", () => {
       name: "mock_tool",
       description: "tool",
       inputSchema: { type: "object", properties: {} },
+      annotations: { readOnlyHint: true },
       handler: toolHandler,
     });
     mockSessionManagerInstance.getClient.mockReturnValue({ client: true });
@@ -330,5 +417,29 @@ describe("PhantomMCPServer", () => {
     resolveInit();
     await callPromise;
     expect(toolHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry mutating tools after a successful token refresh", async () => {
+    const toolHandler = jest.fn().mockRejectedValue({ response: { status: 401 } });
+    mockGetTool.mockReturnValue({
+      name: "mock_tool",
+      description: "tool",
+      inputSchema: { type: "object", properties: {} },
+      annotations: { readOnlyHint: false, idempotentHint: false, destructiveHint: true },
+      handler: toolHandler,
+    });
+    mockSessionManagerInstance.getClient.mockReturnValue({ client: true });
+    mockSessionManagerInstance.getSession.mockReturnValue({ walletId: "wallet-1", organizationId: "org-1" });
+    mockSessionManagerInstance.tryRefreshSession.mockResolvedValue(true);
+
+    new PhantomMCPServer();
+    const { callTool } = getHandlers();
+    const result = await callTool({ params: { name: "mock_tool", arguments: {} } });
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(mockSessionManagerInstance.tryRefreshSession).toHaveBeenCalledTimes(1);
+    expect(mockSessionManagerInstance.resetSession).toHaveBeenCalledTimes(1);
+    expect(toolHandler).toHaveBeenCalledTimes(1);
+    expect(parsed.code).toBe("AUTH_EXPIRED");
   });
 });

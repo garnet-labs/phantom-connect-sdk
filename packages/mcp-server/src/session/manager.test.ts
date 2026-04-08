@@ -42,6 +42,7 @@ describe("SessionManager", () => {
   let mockDeviceCodeAuthProvider: jest.Mocked<DeviceCodeAuthProvider>;
   let mockAuth2Stamper: {
     init: jest.Mock;
+    maybeRefreshTokens: jest.Mock<Promise<boolean>, []>;
     bearerToken: string | null;
     auth2Token: { sub: string } | null;
     getKeyInfo: jest.Mock;
@@ -110,6 +111,7 @@ describe("SessionManager", () => {
 
     mockAuth2Stamper = {
       init: jest.fn().mockResolvedValue(undefined),
+      maybeRefreshTokens: jest.fn<Promise<boolean>, []>(),
       bearerToken: "Bearer access-token",
       auth2Token: { sub: "auth-user-id" },
       getKeyInfo: jest.fn().mockReturnValue({ publicKey: "device-public-key" }),
@@ -283,6 +285,59 @@ describe("SessionManager", () => {
       }),
       expect.anything(),
     );
+  });
+
+  describe("tryRefreshSession()", () => {
+    it("returns false for SSO sessions (no stamper)", async () => {
+      const session = createSsoSession();
+      mockStorage.load.mockReturnValue(session);
+      mockStorage.isExpired.mockReturnValue(false);
+
+      const manager = new SessionManager({ authFlow: "sso" });
+      await manager.initialize();
+
+      const result = await manager.tryRefreshSession();
+
+      expect(result).toBe(false);
+    });
+
+    it("returns false when no session is active", async () => {
+      const manager = new SessionManager();
+      // Do not initialize — no session loaded
+
+      const result = await manager.tryRefreshSession();
+
+      expect(result).toBe(false);
+    });
+
+    it("delegates to stamper.maybeRefreshTokens() for device-code sessions and returns true", async () => {
+      const session = createDeviceCodeSession();
+      mockStorage.load.mockReturnValue(session);
+      mockStorage.isExpired.mockReturnValue(false);
+      mockAuth2Stamper.maybeRefreshTokens = jest.fn().mockResolvedValue(true);
+
+      const manager = new SessionManager({ authFlow: "device-code" });
+      await manager.initialize();
+
+      const result = await manager.tryRefreshSession();
+
+      expect(mockAuth2Stamper.maybeRefreshTokens).toHaveBeenCalledTimes(1);
+      expect(result).toBe(true);
+    });
+
+    it("returns false when stamper.maybeRefreshTokens() fails", async () => {
+      const session = createDeviceCodeSession();
+      mockStorage.load.mockReturnValue(session);
+      mockStorage.isExpired.mockReturnValue(false);
+      mockAuth2Stamper.maybeRefreshTokens = jest.fn().mockResolvedValue(false);
+
+      const manager = new SessionManager({ authFlow: "device-code" });
+      await manager.initialize();
+
+      const result = await manager.tryRefreshSession();
+
+      expect(result).toBe(false);
+    });
   });
 
   it("clears stored state and re-authenticates on resetSession()", async () => {

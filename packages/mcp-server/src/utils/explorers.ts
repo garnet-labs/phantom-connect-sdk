@@ -28,6 +28,9 @@ const EXPLORER_TX_BASE: Record<string, string> = {
   // Monad
   "eip155:143": "https://monadexplorer.com/tx",
   "eip155:10143": "https://testnet.monadexplorer.com/tx",
+
+  // Hypercore (Hyperliquid L1)
+  "hypercore:mainnet": "https://app.hyperliquid.xyz/explorer/tx",
 };
 
 /**

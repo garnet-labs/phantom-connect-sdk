@@ -6,6 +6,7 @@ module.exports = {
   modulePathIgnorePatterns: ["<rootDir>/_release/"],
   moduleNameMapper: {
     "^@phantom/mcp-server$": "<rootDir>/../mcp-server/src/tools/index.ts",
+    "^@phantom/constants$": "<rootDir>/../constants/src/index.ts",
     "^(\\.{1,2}/.*)\\.js$": "$1",
   },
 };

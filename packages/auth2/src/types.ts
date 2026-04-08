@@ -5,6 +5,7 @@ export interface Auth2StamperWithKeyManagement extends StamperWithKeyManagement 
   auth2Token: Auth2Token | null;
   bearerToken: string | null;
   getCryptoKeyPair(): CryptoKeyPair | null;
+  maybeRefreshTokens(): Promise<boolean>;
   setTokens(options: {
     accessToken: string;
     idType: string;

@@ -208,6 +208,48 @@ export interface HlUsdClassTransferAction {
 
 export type HlAction = HlOrderAction | HlCancelAction | HlUpdateLeverageAction | HlUsdClassTransferAction;
 
+// --- Hyperliquid spot withdrawal via Relay V2 bridge ---
+
+export interface WithdrawFromSpotParams {
+  /** Human-readable USDC amount (e.g. "8.0") */
+  amountUsdc: string;
+  /** Destination chain in CAIP-2 format (e.g. "solana:101", "eip155:8453") */
+  destinationChainId: string;
+  /** Pre-resolved destination wallet address (Solana base58 or EVM 0x hex) */
+  destinationAddress: string;
+  /** CAIP-19 token to receive on the destination chain. Defaults to USDC. */
+  buyToken?: string;
+}
+
+export interface WithdrawFromSpotResult {
+  requestId: string;
+  details: { amountIn: string; amountOut: string; amountOutUsd?: string };
+  checkEndpoint: string;
+  execution: unknown;
+}
+
+export interface RelayWithdrawalV2Quote {
+  requestId: string;
+  authorizeStep: {
+    id: "authorize";
+    domain: { name: string; version: string; chainId: number; verifyingContract: string };
+    types: Record<string, Array<{ name: string; type: string }>>;
+    primaryType: string;
+    message: Record<string, unknown>;
+    postEndpoint: string;
+    postBody: Record<string, unknown>;
+  };
+  depositStep: {
+    id: "deposit";
+    action: Record<string, unknown>;
+    nonce: number;
+    eip712Types: Record<string, Array<{ name: string; type: string }>>;
+    eip712PrimaryType: string;
+    checkEndpoint: string;
+  };
+  details: { amountIn: string; amountOut: string; amountOutUsd?: string };
+}
+
 /** Response from POST /swap/v2/place-order (matches backend OrderResponse DTO) */
 export interface HlOrderResponseStatus {
   resting?: { oid: number };

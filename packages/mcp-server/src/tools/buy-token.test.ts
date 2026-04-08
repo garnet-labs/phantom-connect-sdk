@@ -536,4 +536,19 @@ describe("buy_token — validation", () => {
       "amount must be a string or number",
     );
   });
+
+  it("throws for hypercore as sell chain (use withdraw_from_hyperliquid_spot instead)", async () => {
+    const ctx = makeContext();
+    await expect(
+      buyTokenTool.handler(
+        {
+          amount: "8000000",
+          sellChainId: "hypercore:mainnet",
+          sellTokenMint: "0x00000000000000000000000000000000",
+          buyTokenIsNative: true,
+        },
+        ctx as any,
+      ),
+    ).rejects.toThrow("Unsupported sell chain");
+  });
 });

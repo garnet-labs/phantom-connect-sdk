@@ -86,6 +86,13 @@ describe("validateTokenAddress", () => {
   it("includes param name in error message", () => {
     expect(() => validateTokenAddress("bad", "eip155:1", "buyTokenMint")).toThrow("buyTokenMint must be");
   });
+
+  it("passes through for hypercore chain without validation", () => {
+    // Hypercore uses a non-standard 16-byte address format — no validation applied
+    expect(() =>
+      validateTokenAddress("0x00000000000000000000000000000000", "hypercore:mainnet", "sellTokenMint"),
+    ).not.toThrow();
+  });
 });
 
 // --- buildTokenObject ---
@@ -143,6 +150,14 @@ describe("buildTokenObject", () => {
 
   it("throws for unsupported EVM chain native token", () => {
     expect(() => buildTokenObject("eip155:99999", undefined, true)).toThrow("not configured for chain");
+  });
+
+  it("builds Hypercore token with address as-is (no lowercasing)", () => {
+    expect(buildTokenObject("hypercore:mainnet", "0x00000000000000000000000000000000", false)).toEqual({
+      chainId: "hypercore:mainnet",
+      resourceType: "address",
+      address: "0x00000000000000000000000000000000",
+    });
   });
 
   it("covers all EVM_NATIVE_SLIP44 entries", () => {
