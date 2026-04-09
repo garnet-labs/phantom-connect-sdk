@@ -186,11 +186,15 @@ describe("SessionManager", () => {
     const manager = new SessionManager({ authFlow: "device-code" });
     await manager.initialize();
 
-    expect(Auth2Stamper).toHaveBeenCalledWith(expect.anything(), {
-      authApiBaseUrl: "https://auth.phantom.app",
-      clientId: "phantom-mcp",
-      redirectUri: "",
-    });
+    expect(Auth2Stamper).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        authApiBaseUrl: "https://auth.phantom.app",
+        clientId: "phantom-mcp",
+        redirectUri: "",
+        logger: expect.anything(),
+      }),
+    );
     expect(DeviceCodeAuthProvider).toHaveBeenCalledWith(
       expect.anything(),
       {

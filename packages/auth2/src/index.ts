@@ -1,5 +1,5 @@
 export { Auth2KmsRpcClient, type Auth2KmsClientOptions } from "./Auth2KmsRpcClient";
-export { Auth2Stamper, type Auth2StamperRefreshConfig } from "./Auth2Stamper";
+export { Auth2Stamper, type Auth2StamperRefreshConfig, type Auth2Logger } from "./Auth2Stamper";
 export type { Auth2StamperStorage, Auth2StamperStoredRecord } from "./Auth2StamperStorage";
 export { Auth2Token, Auth2TokenExpiredError, decodeJwtClaims } from "./Auth2Token";
 export { exchangeAuthCode, refreshToken } from "./tokenExchange";

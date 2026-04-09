@@ -92,27 +92,6 @@ Supported optional config keys mirror the MCP server environment surface used by
 - **`PHANTOM_VERSION`**: Optional version header override
 - **`PHANTOM_MCP_DEBUG`**: Enable debug logging (set to `"1"` or `"true"`)
 
-Example staging config:
-
-```json
-{
-  "plugins": {
-    "enabled": true,
-    "entries": {
-      "phantom-openclaw-plugin": {
-        "enabled": true,
-        "config": {
-          "PHANTOM_AUTH_BASE_URL": "https://staging-auth.phantom.app",
-          "PHANTOM_CONNECT_BASE_URL": "https://staging-connect.phantom.app",
-          "PHANTOM_WALLETS_API_BASE_URL": "https://staging-api.phantom.app/v1/wallets",
-          "PHANTOM_API_BASE_URL": "https://staging-api.phantom.app"
-        }
-      }
-    }
-  }
-}
-```
-
 ## Available Tools
 
 The plugin exposes the following tools from the Phantom MCP Server:

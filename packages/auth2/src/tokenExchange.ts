@@ -39,15 +39,17 @@ export async function refreshToken(options: {
   redirectUri: string;
   refreshToken: string;
 }): Promise<TokenExchangeResult<"refresh_token">> {
-  const result = await _postTokenRequest(
-    options.authApiBaseUrl,
-    new URLSearchParams({
-      grant_type: "refresh_token",
-      client_id: options.clientId,
-      redirect_uri: options.redirectUri,
-      refresh_token: options.refreshToken,
-    }),
-  );
+  const params = new URLSearchParams({
+    grant_type: "refresh_token",
+    client_id: options.clientId,
+    refresh_token: options.refreshToken,
+  });
+
+  if (options.redirectUri.trim().length > 0) {
+    params.set("redirect_uri", options.redirectUri);
+  }
+
+  const result = await _postTokenRequest(options.authApiBaseUrl, params);
   if (!result.refreshToken) {
     throw new Error("Auth2 refresh token request did not return a refresh_token.");
   }

@@ -4,6 +4,7 @@
  */
 
 import axios, { type AxiosError } from "axios";
+import { randomUUID } from "crypto";
 import { Logger } from "../utils/logger";
 import type { DCRClientConfig } from "../session/types";
 
@@ -11,12 +12,14 @@ import type { DCRClientConfig } from "../session/types";
  * RFC 7591 Dynamic Client Registration request payload
  */
 interface DCRRegistrationRequest {
+  client_id?: string;
   client_name: string;
   redirect_uris: string[];
   grant_types: string[];
   response_types: string[];
   application_type: string;
   token_endpoint_auth_method: string;
+  audience?: string[];
   scope?: string;
 }
 
@@ -91,13 +94,16 @@ export class DCRClient {
   async registerForDeviceFlow(): Promise<DCRClientConfig> {
     const registrationEndpoint = `${this.authBaseUrl}/oauth2/register`;
     const clientName = `${this.appId}-${Date.now()}`;
+    const clientId = randomUUID();
 
     const payload: DCRRegistrationRequest = {
+      client_id: clientId,
       client_name: clientName,
       redirect_uris: [],
       grant_types: ["urn:ietf:params:oauth:grant-type:device_code", "refresh_token"],
       response_types: [],
       application_type: "native",
+      audience: [`urn:phantom:wallet-tag:${clientId}`],
       // Device flow clients are public per RFC 8628 — no client secret
       token_endpoint_auth_method: "none",
       scope: "openid offline_access",

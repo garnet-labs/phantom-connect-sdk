@@ -11,10 +11,18 @@ import type { Auth2StamperStorage } from "./Auth2StamperStorage";
 /** Refresh the access token when fewer than this many ms remain before expiry. */
 const TOKEN_REFRESH_BUFFER_MS = 15 * 60 * 1000;
 
+export type Auth2Logger = {
+  debug?(message: string): void;
+  info?(message: string): void;
+  warn?(message: string): void;
+  error?(message: string): void;
+};
+
 export type Auth2StamperRefreshConfig = {
   authApiBaseUrl: string;
   clientId: string;
   redirectUri: string;
+  logger?: Auth2Logger;
 };
 
 export class Auth2Stamper implements Auth2StamperWithKeyManagement {
@@ -123,16 +131,26 @@ export class Auth2Stamper implements Auth2StamperWithKeyManagement {
    * Returns true if a refresh succeeded, false otherwise.
    */
   async maybeRefreshTokens(): Promise<boolean> {
+    this.refreshConfig?.logger?.debug?.("Auth2Stamper.maybeRefreshTokens() called");
+
     if (this.refreshingTokensPromise) {
+      this.refreshConfig?.logger?.debug?.("Auth2Stamper.maybeRefreshTokens(): awaiting in-flight refresh");
       return this.refreshingTokensPromise;
     }
 
-    if (
-      !this.refreshConfig ||
-      !this._refreshToken ||
-      !this._tokenExpiresAt ||
-      Date.now() < this._tokenExpiresAt - TOKEN_REFRESH_BUFFER_MS
-    ) {
+    if (!this.refreshConfig) {
+      return false;
+    }
+    if (!this._refreshToken) {
+      this.refreshConfig.logger?.debug?.("Auth2Stamper.maybeRefreshTokens(): skipped — missing refresh token");
+      return false;
+    }
+    if (!this._tokenExpiresAt) {
+      this.refreshConfig.logger?.debug?.("Auth2Stamper.maybeRefreshTokens(): skipped — missing token expiry");
+      return false;
+    }
+    if (Date.now() < this._tokenExpiresAt - TOKEN_REFRESH_BUFFER_MS) {
+      this.refreshConfig.logger?.debug?.("Auth2Stamper.maybeRefreshTokens(): skipped — token not near expiry");
       return false;
     }
 
@@ -141,6 +159,7 @@ export class Auth2Stamper implements Auth2StamperWithKeyManagement {
 
     this.refreshingTokensPromise = (async () => {
       try {
+        refreshConfig.logger?.info?.("Auth2Stamper.maybeRefreshTokens(): attempting token refresh");
         const refreshed = await refreshTokenRequest({
           authApiBaseUrl: refreshConfig.authApiBaseUrl,
           clientId: refreshConfig.clientId,
@@ -154,9 +173,11 @@ export class Auth2Stamper implements Auth2StamperWithKeyManagement {
           refreshToken: refreshed.refreshToken,
           expiresInMs: refreshed.expiresInMs,
         });
+        refreshConfig.logger?.info?.("Auth2Stamper.maybeRefreshTokens(): token refresh succeeded");
         return true;
       } catch (error) {
-        console.error("Failed to refresh tokens:", error);
+        const message = error instanceof Error ? error.message : String(error);
+        refreshConfig.logger?.error?.(`Auth2Stamper.maybeRefreshTokens(): token refresh failed: ${message}`);
         return false;
       } finally {
         this.refreshingTokensPromise = null;
@@ -166,11 +187,15 @@ export class Auth2Stamper implements Auth2StamperWithKeyManagement {
     return this.refreshingTokensPromise;
   }
   async stamp(params: { data: Buffer; type?: "PKI" } | { data: Buffer; type: "OIDC" }): Promise<string> {
+    this.refreshConfig?.logger?.debug?.("Auth2Stamper.stamp(): called");
+
     if (!this._keyPair || !this._keyInfo) {
       throw new Error("Auth2Stamper not initialized. Call init() first.");
     }
 
+    this.refreshConfig?.logger?.debug?.("Auth2Stamper.stamp(): awaiting maybeRefreshTokens()");
     await this.maybeRefreshTokens();
+    this.refreshConfig?.logger?.debug?.("Auth2Stamper.stamp(): maybeRefreshTokens() completed");
 
     if (!this.auth2Token) {
       throw new Error("Auth2Stamper not initialized. Call init() first.");

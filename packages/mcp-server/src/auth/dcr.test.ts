@@ -334,4 +334,37 @@ describe("DCRClient", () => {
       }
     });
   });
+
+  describe("registerForDeviceFlow", () => {
+    beforeEach(() => {
+      dcrClient = new DCRClient("https://auth.phantom.app", "phantom-mcp");
+    });
+
+    it("registers a public device-flow client with a wallet-tag audience matching its client_id", async () => {
+      const mockResponse = {
+        data: {
+          client_id: "test-device-client-id",
+          client_secret: "",
+          client_id_issued_at: 1234567890,
+        },
+      };
+
+      mockedAxios.post.mockResolvedValueOnce(mockResponse);
+
+      await dcrClient.registerForDeviceFlow();
+
+      const callArgs = mockedAxios.post.mock.calls[0];
+      const payload = callArgs[1] as {
+        client_id: string;
+        audience: string[];
+        grant_types: string[];
+        token_endpoint_auth_method: string;
+      };
+
+      expect(payload.client_id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+      expect(payload.audience).toEqual([`urn:phantom:wallet-tag:${payload.client_id}`]);
+      expect(payload.grant_types).toEqual(["urn:ietf:params:oauth:grant-type:device_code", "refresh_token"]);
+      expect(payload.token_endpoint_auth_method).toBe("none");
+    });
+  });
 });

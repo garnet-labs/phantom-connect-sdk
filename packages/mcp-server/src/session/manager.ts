@@ -258,7 +258,7 @@ export class SessionManager {
       return Promise.resolve(false);
     }
     this.logger.info("tryRefreshSession: attempting stamper token refresh");
-    return this.stamper.maybeRefreshTokens().then(result => {
+    return this.stamper.maybeRefreshTokens().then((result: boolean) => {
       this.logger.info(`tryRefreshSession: refresh ${result ? "succeeded" : "did not run or failed"}`);
       return result;
     });
@@ -343,6 +343,7 @@ export class SessionManager {
       authApiBaseUrl: this.authBaseUrl,
       clientId: this.resolveAppId(),
       redirectUri: "",
+      logger: this.logger.child("Auth2Stamper"),
     });
     const deviceFlow = new DeviceCodeAuthProvider(
       stamper,
@@ -447,6 +448,7 @@ export class SessionManager {
       authApiBaseUrl: this.authBaseUrl,
       clientId: session.appId ?? appId,
       redirectUri: "",
+      logger: this.logger.child("Auth2Stamper"),
     });
     await stamper.init();
     this.stamper = stamper;
