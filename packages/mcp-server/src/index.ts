@@ -4,6 +4,7 @@
 // Export SessionManager and types for external usage
 export { SessionManager } from "./session/manager.js";
 export type { SessionData } from "./session/types.js";
+export type { DeviceCodeAuthDisplayOptions } from "./auth/DeviceCodeAuthProvider.js";
 
 // Export tools for external usage
 export { tools } from "./tools/index.js";

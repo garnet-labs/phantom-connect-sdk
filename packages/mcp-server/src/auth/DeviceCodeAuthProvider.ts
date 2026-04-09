@@ -48,6 +48,12 @@ export type DeviceCodeAuthResult = {
   appId: string;
 };
 
+export type DeviceCodeAuthDisplayOptions = {
+  openBrowser?: boolean;
+  promptOnly?: boolean;
+  onPrompt?: (message: string) => void | Promise<void>;
+};
+
 const UUID_CLIENT_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export class DeviceCodeAuthProvider {
   constructor(
@@ -56,7 +62,7 @@ export class DeviceCodeAuthProvider {
     private readonly logger: Logger = new Logger("DeviceCodeAuthProvider"),
   ) {}
 
-  async authenticate(): Promise<DeviceCodeAuthResult> {
+  async authenticate(displayOptions: DeviceCodeAuthDisplayOptions = {}): Promise<DeviceCodeAuthResult> {
     if (!this.stamper.getKeyInfo()) {
       await this.stamper.init();
     }
@@ -72,7 +78,15 @@ export class DeviceCodeAuthProvider {
     const nonce = await _deriveNonce(keyPair, "");
     const deviceAuth = await this.requestDeviceCode(clientConfig.client_id, nonce);
 
-    await this.displayDeviceCode(deviceAuth, clientConfig.client_id, keyInfo.publicKey);
+    const promptText = await this.displayDeviceCode(
+      deviceAuth,
+      clientConfig.client_id,
+      keyInfo.publicKey,
+      displayOptions,
+    );
+    if (displayOptions.promptOnly && promptText) {
+      throw new Error(promptText);
+    }
 
     const tokens = await this.pollForTokens(
       clientConfig.client_id,
@@ -198,26 +212,29 @@ export class DeviceCodeAuthProvider {
     deviceAuth: DeviceAuthorizationResponse,
     clientId: string,
     publicKey: string,
-  ): Promise<void> {
+    displayOptions: DeviceCodeAuthDisplayOptions = {},
+  ): Promise<string | null> {
     const { user_code } = deviceAuth;
     const urlToOpen = `${this.options.connectBaseUrl}/device-connect?user_code=${encodeURIComponent(user_code)}&client_id=${encodeURIComponent(clientId)}&public_key=${encodeURIComponent(publicKey)}`;
     this.logger.info(`Generated device connect URL: ${urlToOpen}`);
 
     let browserOpened = false;
-    try {
-      await new Promise<void>((resolve, reject) => {
-        if (process.platform === "win32") {
-          execFile("cmd", ["/c", "start", "", urlToOpen], err => (err ? reject(err) : resolve()));
-        } else {
-          const cmd = process.platform === "darwin" ? "open" : "xdg-open";
-          execFile(cmd, [urlToOpen], err => (err ? reject(err) : resolve()));
-        }
-      });
-      browserOpened = true;
-      this.logger.info(`Browser opened for device authorization: ${urlToOpen}`);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`Could not open browser automatically: ${msg}`);
+    if (displayOptions.openBrowser !== false) {
+      try {
+        await new Promise<void>((resolve, reject) => {
+          if (process.platform === "win32") {
+            execFile("cmd", ["/c", "start", "", urlToOpen], err => (err ? reject(err) : resolve()));
+          } else {
+            const cmd = process.platform === "darwin" ? "open" : "xdg-open";
+            execFile(cmd, [urlToOpen], err => (err ? reject(err) : resolve()));
+          }
+        });
+        browserOpened = true;
+        this.logger.info(`Browser opened for device authorization: ${urlToOpen}`);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`Could not open browser automatically: ${msg}`);
+      }
     }
 
     const line = (content: string) => process.stderr.write(content + "\n");
@@ -233,13 +250,26 @@ export class DeviceCodeAuthProvider {
       line("║  Waiting for approval...                     ║");
       line("╚══════════════════════════════════════════════╝");
       line("");
-      return;
+      return null;
     }
 
     const hyperlink = `\x1b]8;;${urlToOpen}\x07${urlToOpen}\x1b]8;;\x07`;
     const qr = await new Promise<string>(resolve => {
       qrcode.generate(urlToOpen, { small: true }, resolve);
     });
+
+    if (displayOptions.onPrompt) {
+      const promptText = [
+        "Phantom Wallet — Device Authorization",
+        "",
+        "Please visit this link to approve the connection:",
+        urlToOpen,
+        "",
+        `Code: ${user_code}`,
+      ].join("\n");
+      await displayOptions.onPrompt(promptText);
+      return promptText;
+    }
 
     line("");
     line("╔══════════════════════════════════════════════╗");
@@ -257,6 +287,7 @@ export class DeviceCodeAuthProvider {
     process.stderr.write(qr);
     line(hyperlink);
     line("");
+    return null;
   }
 
   private async pollForTokens(

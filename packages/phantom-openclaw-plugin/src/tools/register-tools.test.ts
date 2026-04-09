@@ -34,6 +34,13 @@ function registerToolsForTest() {
   };
 
   const session = {
+    initialize: jest.fn().mockResolvedValue(undefined),
+    resetSession: jest.fn().mockResolvedValue(undefined),
+    isInitialized: jest.fn().mockReturnValue(false),
+    startTextModeAuthentication: jest.fn().mockResolvedValue({
+      status: "pending",
+      prompt: "Visit https://connect.phantom.app/device-connect?user_code=CODE",
+    }),
     getClient: jest.fn(),
     getSession: jest.fn().mockReturnValue({ appId: "session-client-id", walletId: "wallet-1" }),
     getOAuthHeaders: jest.fn().mockReturnValue({ authorization: "Bearer token", "x-auth-user-id": "user-1" }),
@@ -139,7 +146,7 @@ describe("registerPhantomTools schema conversion", () => {
         text: JSON.stringify(
           {
             connected: false,
-            reason: "No active session found. Call get_wallet_addresses to authenticate.",
+            reason: "No active session found. Call phantom_login or another wallet tool to authenticate.",
             provider: "phantom",
           },
           null,
@@ -154,10 +161,26 @@ describe("registerPhantomTools schema conversion", () => {
 
     expect(mockSetHeaders).toHaveBeenCalledWith(
       expect.objectContaining({
-        "x-api-key": "session-client-id",
-        "X-App-Id": "session-client-id",
+        "x-phantom-client": "mcp",
+        "x-phantom-platform": "ext-sdk",
       }),
     );
     expect(mockSetGetHeaders).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns a pending authentication prompt for phantom_login in text mode", async () => {
+    const { registeredTools } = registerToolsForTest();
+    const loginTool = registeredTools.find(tool => tool.name === "phantom_login");
+
+    expect(loginTool).toBeDefined();
+
+    const response = await loginTool!.execute("tool-call-2", { displayMode: "text" });
+    const typedResponse = response as { content: Array<{ text: string }>; isError?: boolean };
+    const parsed = JSON.parse(typedResponse.content[0].text);
+
+    expect(response.isError).toBeUndefined();
+    expect(parsed.provider).toBe("phantom");
+    expect(parsed.status).toBe("pending_authentication");
+    expect(parsed.prompt).toContain("device-connect");
   });
 });

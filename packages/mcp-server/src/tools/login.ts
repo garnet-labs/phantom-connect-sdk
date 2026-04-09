@@ -13,10 +13,18 @@ import type { ToolHandler } from "./types.js";
 export const loginTool: ToolHandler = {
   name: "phantom_login",
   description:
-    "Re-authenticate with Phantom. Use this to log in for the first time, switch accounts, or refresh an expired session.",
+    "Re-authenticate with Phantom. Use this to log in for the first time, switch accounts, or refresh an expired session. " +
+    "Set displayMode to 'text' if you want the login prompt returned as text instead of trying to open a browser automatically.",
   inputSchema: {
     type: "object",
-    properties: {},
+    properties: {
+      displayMode: {
+        type: "string",
+        enum: ["browser", "text"],
+        description:
+          "'browser' (default) tries to open the browser automatically. 'text' returns the login prompt text instead.",
+      },
+    },
   },
   annotations: {
     readOnlyHint: false,

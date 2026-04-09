@@ -191,6 +191,35 @@ describe("PhantomMCPServer", () => {
     expect(mockSetPaymentHandler).toHaveBeenCalledTimes(1);
   });
 
+  it("passes text display mode to phantom_login and returns the prompt text", async () => {
+    mockGetTool.mockReturnValue(mockTools[0]);
+    mockSessionManagerInstance.resetSession.mockImplementation((_opts?: unknown) => Promise.resolve(undefined));
+    mockSessionManagerInstance.getSession.mockReturnValue({
+      walletId: "wallet-login",
+      organizationId: "org-1",
+      appId: "session-client-id",
+      authFlow: "device-code",
+    });
+    mockSessionManagerInstance.getClient.mockReturnValue({
+      getWalletAddresses: jest.fn().mockResolvedValue([{ addressType: "solana", address: "So1Address" }]),
+    });
+
+    new PhantomMCPServer();
+    const { callTool } = getHandlers();
+    const result = await callTool({ params: { name: "phantom_login", arguments: { displayMode: "text" } } });
+
+    expect(mockSessionManagerInstance.resetSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        openBrowser: false,
+        onPrompt: expect.any(Function),
+      }),
+    );
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.success).toBe(true);
+    expect(parsed.authFlow).toBe("device-code");
+  });
+
   it("returns AUTH_EXPIRED and resets session when token refresh fails on 401", async () => {
     const toolHandler = jest.fn().mockRejectedValue({ response: { status: 401 } });
     mockGetTool.mockReturnValue({

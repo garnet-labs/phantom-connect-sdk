@@ -4,7 +4,7 @@
  */
 
 import { SessionManager } from "@phantom/mcp-server";
-import type { PhantomClient, SessionData } from "@phantom/mcp-server";
+import type { PhantomClient, SessionData, DeviceCodeAuthDisplayOptions } from "@phantom/mcp-server";
 
 /**
  * Configuration options for PluginSession
@@ -26,6 +26,7 @@ export class PluginSession {
   private sessionManager: SessionManager;
   private initialized = false;
   private initializingPromise: Promise<void> | null = null;
+  private pendingPrompt: string | null = null;
 
   constructor(options: PluginSessionOptions = {}) {
     // Initialize SessionManager with configuration
@@ -41,7 +42,7 @@ export class PluginSession {
    * Initialize the session (authenticate if needed)
    * Thread-safe: concurrent calls will await the same initialization promise
    */
-  async initialize(): Promise<void> {
+  async initialize(displayOptions?: DeviceCodeAuthDisplayOptions): Promise<void> {
     if (this.initialized) {
       return;
     }
@@ -52,18 +53,67 @@ export class PluginSession {
     }
 
     // Create and store the initialization promise
-    this.initializingPromise = this.sessionManager
-      .initialize()
+    const initPromise = this.sessionManager
+      .initialize(displayOptions)
       .then(() => {
         this.initialized = true;
+        this.pendingPrompt = null;
       })
-      .catch(error => {
+      .catch((error: unknown) => {
         // Clear promise on error so subsequent calls can retry
         this.initializingPromise = null;
         throw error;
       });
+    this.initializingPromise = initPromise;
 
-    return this.initializingPromise;
+    return initPromise;
+  }
+
+  async startTextModeAuthentication(): Promise<{ status: "ready" } | { status: "pending"; prompt: string }> {
+    if (this.initialized) {
+      return { status: "ready" };
+    }
+
+    if (this.initializingPromise) {
+      return {
+        status: "pending",
+        prompt: this.pendingPrompt ?? "Authentication is already in progress. Complete the pending Phantom login flow.",
+      };
+    }
+
+    let resolvePrompt!: (prompt: string) => void;
+    const promptPromise = new Promise<string>(resolve => {
+      resolvePrompt = resolve;
+    });
+
+    const initPromise = this.initialize({
+      openBrowser: false,
+      onPrompt: prompt => {
+        this.pendingPrompt = prompt;
+        resolvePrompt(prompt);
+      },
+    });
+
+    void initPromise.catch(() => {});
+
+    const raceResult = await Promise.race([
+      initPromise.then(() => ({ status: "ready" as const })),
+      promptPromise.then(prompt => ({ status: "pending" as const, prompt })),
+    ]);
+
+    return raceResult;
+  }
+
+  async resetSession(displayOptions?: DeviceCodeAuthDisplayOptions): Promise<void> {
+    this.initializingPromise = null;
+    this.initialized = false;
+    this.pendingPrompt = null;
+    await this.sessionManager.resetSession(displayOptions);
+    this.initialized = true;
+  }
+
+  isInitialized(): boolean {
+    return this.initialized;
   }
 
   /**

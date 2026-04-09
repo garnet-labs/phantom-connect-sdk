@@ -14,6 +14,7 @@ import { SessionStorage } from "./storage.js";
 import { OAuthFlow } from "../auth/oauth.js";
 import { DeviceCodeAuthProvider } from "../auth/DeviceCodeAuthProvider.js";
 import { NodeFileAuth2StamperStorage } from "../auth/NodeFileAuth2StamperStorage.js";
+import type { DeviceCodeAuthDisplayOptions } from "../auth/DeviceCodeAuthProvider.js";
 import type { SessionData } from "./types.js";
 import { Logger } from "../utils/logger.js";
 import * as packageJson from "../../package.json";
@@ -154,7 +155,7 @@ export class SessionManager {
    *
    * @throws Error if authentication fails
    */
-  async initialize(): Promise<void> {
+  async initialize(displayOptions?: DeviceCodeAuthDisplayOptions): Promise<void> {
     this.logger.info("Initializing session manager");
 
     // Step 1: Try to load existing session
@@ -179,7 +180,7 @@ export class SessionManager {
           this.storage.delete();
           this.session = null;
           this.client = null;
-          await this.authenticate();
+          await this.authenticate(displayOptions);
           return;
         }
         // Non-auth errors (network down, timeout) — keep the session and proceed
@@ -196,7 +197,7 @@ export class SessionManager {
       this.logger.info("No session found, authenticating");
     }
 
-    await this.authenticate();
+    await this.authenticate(displayOptions);
   }
 
   /**
@@ -269,7 +270,7 @@ export class SessionManager {
    *
    * @throws Error if authentication fails
    */
-  async resetSession(): Promise<void> {
+  async resetSession(displayOptions?: DeviceCodeAuthDisplayOptions): Promise<void> {
     this.logger.info("Resetting session");
 
     // Clear stored session
@@ -280,7 +281,7 @@ export class SessionManager {
     this.stamper = null;
 
     // Re-authenticate
-    await this.authenticate();
+    await this.authenticate(displayOptions);
   }
 
   /**
@@ -289,11 +290,11 @@ export class SessionManager {
    *
    * @throws Error if authentication fails
    */
-  private async authenticate(): Promise<void> {
+  private async authenticate(displayOptions?: DeviceCodeAuthDisplayOptions): Promise<void> {
     this.logger.info(`Starting authentication (flow: ${this.authFlow})`);
 
     if (this.authFlow === "device-code") {
-      await this.authenticateWithDeviceFlow();
+      await this.authenticateWithDeviceFlow(displayOptions);
     } else {
       await this.authenticateWithSso();
     }
@@ -338,7 +339,7 @@ export class SessionManager {
    *
    * @throws Error if device flow fails
    */
-  private async authenticateWithDeviceFlow(): Promise<void> {
+  private async authenticateWithDeviceFlow(displayOptions?: DeviceCodeAuthDisplayOptions): Promise<void> {
     const stamper = new Auth2Stamper(new NodeFileAuth2StamperStorage(this.storage.sessionDir), {
       authApiBaseUrl: this.authBaseUrl,
       clientId: this.resolveAppId(),
@@ -357,7 +358,7 @@ export class SessionManager {
       this.logger.child("DeviceCodeAuthProvider"),
     );
 
-    const result = await deviceFlow.authenticate();
+    const result = await deviceFlow.authenticate(displayOptions);
     this.logger.info("Device authorization flow completed successfully");
 
     const now = Math.floor(Date.now() / 1000);

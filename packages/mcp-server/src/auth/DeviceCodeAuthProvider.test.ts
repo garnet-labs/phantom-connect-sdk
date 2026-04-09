@@ -231,4 +231,50 @@ describe("DeviceCodeAuthProvider", () => {
       }),
     );
   });
+
+  it("emits a text prompt instead of launching the browser when openBrowser is false", async () => {
+    mockAxiosPost
+      .mockResolvedValueOnce({
+        data: {
+          device_code: "device-code",
+          user_code: "ABCD-1234",
+          verification_uri: "https://auth.phantom.app/oauth2/device",
+          expires_in: 600,
+          interval: 1,
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          access_token: "access-token",
+          refresh_token: "refresh-token",
+          id_token:
+            "header." + Buffer.from(JSON.stringify({ organization_id: "org-123" })).toString("base64url") + ".sig",
+          expires_in: 3600,
+          token_type: "Bearer",
+        },
+      });
+    mockFromAccessToken.mockReturnValue({
+      sub: "auth-user-1",
+      clientId: "env-client-id",
+      wallet: { id: "wallet-from-token", derivationIndex: 0 },
+    });
+    mockGetOrCreateAppWallet.mockResolvedValue({ walletId: "agent-wallet-id", tags: [] });
+
+    const onPrompt = jest.fn();
+    const provider = new DeviceCodeAuthProvider(stamper as never, {
+      authBaseUrl: "https://auth.phantom.app",
+      connectBaseUrl: "https://connect.phantom.app",
+      walletsApiBaseUrl: "https://api.phantom.app/v1/wallets",
+      appId: "phantom-mcp",
+      sessionDir: "/tmp/test-phantom-mcp",
+    });
+
+    await provider.authenticate({ openBrowser: false, onPrompt });
+
+    expect(mockExecFile).not.toHaveBeenCalled();
+    expect(onPrompt).toHaveBeenCalledTimes(1);
+    expect(onPrompt.mock.calls[0][0]).toContain("Phantom Wallet — Device Authorization");
+    expect(onPrompt.mock.calls[0][0]).toContain("ABCD-1234");
+    expect(onPrompt.mock.calls[0][0]).toContain("https://connect.phantom.app/device-connect");
+  });
 });

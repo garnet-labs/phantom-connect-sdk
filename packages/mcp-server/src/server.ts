@@ -211,12 +211,24 @@ export class PhantomMCPServer {
         // even when the session is not yet initialized (first run, expired, etc.)
         if (toolName === "phantom_login") {
           this.logger.info("Handling phantom_login: resetting session");
+          const displayMode = request.params.arguments?.displayMode;
+          const useTextPrompt = displayMode === "text";
+          let promptText: string | null = null;
           this.logger.info(
             "Starting authentication now. If using SSO, Phantom Connect will open in your browser. " +
               "If using device-code, a device connect URL and code will be shown in the terminal.",
           );
           try {
-            await this.sessionManager.resetSession();
+            await this.sessionManager.resetSession(
+              useTextPrompt
+                ? {
+                    openBrowser: false,
+                    onPrompt: message => {
+                      promptText = message;
+                    },
+                  }
+                : undefined,
+            );
             const session = this.sessionManager.getSession();
             this.logger.info(
               `phantom_login successful for walletId: ${session.walletId}, authFlow: ${session.authFlow}`,
@@ -235,6 +247,7 @@ export class PhantomMCPServer {
                     {
                       success: true,
                       message: "Authentication successful.",
+                      ...(promptText ? { prompt: promptText } : {}),
                       walletId: session.walletId,
                       authFlow: session.authFlow ?? "device-code",
                     },

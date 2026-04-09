@@ -115,13 +115,9 @@ function resetSession(): void {
 /**
  * Plugin registration function
  */
-export default async function register(api: OpenClawApi) {
+export default function register(api: OpenClawApi) {
   try {
-    // Initialize session (authenticate if needed)
     const session = getSession(api.config);
-    await session.initialize();
-
-    // Register all Phantom MCP tools
     registerPhantomTools(api, session);
   } catch (error) {
     console.error("Failed to initialize Phantom OpenClaw plugin:", error); // eslint-disable-line no-console

@@ -337,12 +337,6 @@ function addProviderAttribution(result: unknown): unknown {
  * Register all Phantom MCP tools with OpenClaw
  */
 export function registerPhantomTools(api: OpenClawApi, session: PluginSession): void {
-  const sessionData = session.getSession();
-  const appId =
-    process.env.PHANTOM_APP_ID ??
-    process.env.PHANTOM_CLIENT_ID ??
-    (sessionData && typeof sessionData.appId === "string" ? sessionData.appId : undefined);
-
   const apiClient = new PhantomApiClient({
     baseUrl: process.env.PHANTOM_API_BASE_URL ?? "https://api.phantom.app",
   });
@@ -352,10 +346,6 @@ export function registerPhantomTools(api: OpenClawApi, session: PluginSession): 
     [ANALYTICS_HEADER_CLIENT]: "mcp",
     [ANALYTICS_HEADER_SDK_VERSION]: process.env.PHANTOM_VERSION ?? packageJson.version ?? "unknown",
   };
-  if (appId) {
-    staticHeaders["x-api-key"] = appId;
-    staticHeaders["X-App-Id"] = appId;
-  }
   apiClient.setHeaders(staticHeaders);
   apiClient.setGetHeaders(() => session.getOAuthHeaders());
 
@@ -382,18 +372,108 @@ export function registerPhantomTools(api: OpenClawApi, session: PluginSession): 
           child: (name: string) => createLogger(`${prefix}:${name}`),
         });
 
+        const logger = createLogger(mcpTool.name);
+        const displayMode = params.displayMode === "browser" ? "browser" : "text";
+
+        if (mcpTool.name === "get_connection_status" && !session.isInitialized()) {
+          const normalized = addProviderAttribution({
+            connected: false,
+            reason: "No active session found. Call phantom_login or another wallet tool to authenticate.",
+          });
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(normalized, null, 2),
+              },
+            ],
+          };
+        }
+
         const context = {
-          client: session.getClient(),
-          session: session.getSession(),
-          logger: createLogger(mcpTool.name),
+          client: undefined,
+          session: undefined,
+          logger,
           apiClient,
-        };
+        } as any;
 
         try {
-          // Execute the MCP tool handler
-          const result = await mcpTool.handler(params, context);
+          if (mcpTool.name === "phantom_login") {
+            if (displayMode === "browser") {
+              await session.resetSession({ openBrowser: true });
+            } else {
+              const authState = await session.startTextModeAuthentication();
+              if (authState.status === "pending") {
+                return {
+                  content: [
+                    {
+                      type: "text" as const,
+                      text: JSON.stringify(
+                        addProviderAttribution({
+                          success: false,
+                          status: "pending_authentication",
+                          prompt: authState.prompt,
+                        }),
+                        null,
+                        2,
+                      ),
+                    },
+                  ],
+                };
+              }
+            }
+          } else {
+            if (!session.isInitialized()) {
+              const authState = await session.startTextModeAuthentication();
+              if (authState.status === "pending") {
+                return {
+                  content: [
+                    {
+                      type: "text" as const,
+                      text: JSON.stringify(
+                        {
+                          provider: PHANTOM_PROVIDER,
+                          error: "AUTHENTICATION_REQUIRED",
+                          prompt: authState.prompt,
+                        },
+                        null,
+                        2,
+                      ),
+                    },
+                  ],
+                  isError: true,
+                };
+              }
+            }
 
-          // Return in OpenClaw format with defensive handling for undefined
+            await session.initialize();
+          }
+
+          const sessionData = session.getSession();
+          const appId =
+            process.env.PHANTOM_APP_ID ??
+            process.env.PHANTOM_CLIENT_ID ??
+            (typeof sessionData.appId === "string" ? sessionData.appId : undefined);
+          if (appId) {
+            apiClient.setHeaders({
+              "x-api-key": appId,
+              "X-App-Id": appId,
+            });
+          }
+
+          context.client = session.getClient();
+          context.session = sessionData;
+
+          const result =
+            mcpTool.name === "phantom_login"
+              ? {
+                  success: true,
+                  message: "Authentication successful.",
+                  walletId: sessionData.walletId,
+                  authFlow: sessionData.authFlow ?? "device-code",
+                }
+              : await mcpTool.handler(params, context);
+
           const normalized = addProviderAttribution(result);
           return {
             content: [
