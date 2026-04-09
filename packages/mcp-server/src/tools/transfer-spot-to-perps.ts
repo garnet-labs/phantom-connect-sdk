@@ -32,10 +32,6 @@ export const transferSpotToPerpsTool = createTool<Params>({
   inputSchema: {
     type: "object",
     properties: {
-      walletId: {
-        type: "string",
-        description: "Optional wallet ID (defaults to authenticated wallet)",
-      },
       derivationIndex: {
         type: "integer",
         description: "Optional derivation index (default: 0)",

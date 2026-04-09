@@ -44,6 +44,8 @@ describe("open_perp_position", () => {
 
   it("calls openPosition with correct params for a market long", async () => {
     await openPerpPositionTool.handler(VALID_PARAMS, makeContext() as any);
+    const { createPerpsClient } = jest.requireMock("../utils/perps.js");
+    expect(createPerpsClient).toHaveBeenCalledWith(expect.anything(), "wallet-1", undefined);
     expect(mockPerpsClient.openPosition).toHaveBeenCalledWith(
       expect.objectContaining({
         market: "BTC",

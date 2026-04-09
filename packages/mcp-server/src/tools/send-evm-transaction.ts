@@ -100,10 +100,6 @@ export const sendEvmTransactionTool = createTool<Params>({
         description:
           'Hex-encoded transaction type (e.g. "0x0" for legacy, "0x2" for EIP-1559, "0x3" for blob). Inferred automatically if omitted.',
       },
-      walletId: {
-        type: "string",
-        description: "Optional wallet ID to use for signing (defaults to authenticated wallet)",
-      },
       derivationIndex: {
         type: "number",
         description: "Optional derivation index for the account (default: 0)",

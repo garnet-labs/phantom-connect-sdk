@@ -26,10 +26,6 @@ export const signSolanaMessageTool: ToolHandler = {
         type: "string",
         description: 'Solana network identifier (e.g., "solana:mainnet", "solana:devnet")',
       },
-      walletId: {
-        type: "string",
-        description: "Optional wallet ID to use for signing (defaults to authenticated wallet)",
-      },
       derivationIndex: {
         type: "integer",
         description: "Optional derivation index for the account (default: 0)",

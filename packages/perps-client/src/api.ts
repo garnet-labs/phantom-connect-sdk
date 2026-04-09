@@ -193,7 +193,7 @@ export class PerpsApi {
     this.logger.info(`getBridgeInitialize sellAmount=${params.sellAmount} dest=${params.takerDestination}`);
     return this.get<RelayWithdrawalV2Quote>("/swap/v2/spot/bridge-initialize", {
       ...params,
-      bridgeProvider: "RELAY_V2",
+      bridgeProvider: "RelayV2",
     });
   }
 

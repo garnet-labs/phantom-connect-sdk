@@ -41,6 +41,7 @@ function makeStamper(
 ) {
   return {
     stamp: jest.fn().mockResolvedValue("mock-stamp"),
+    maybeRefreshTokens: jest.fn().mockResolvedValue(false),
     getKeyInfo: jest.fn().mockReturnValue({
       keyId: "key-id-1",
       publicKey: "7EcDshMsTHCs2f2HU2a3n36x9JkEVVenF9oQQGy5U3s",
@@ -107,6 +108,7 @@ describe("Auth2KmsRpcClient", () => {
       expect(headers["x-app-id"]).toBe("app-123");
       expect(headers["x-api-version"]).toBe("2025-11-24");
       expect(headers["x-phantom-stamp"]).toBe("mock-stamp");
+      expect(stamper.maybeRefreshTokens).toHaveBeenCalledTimes(1);
       expect(stamper.stamp).toHaveBeenCalledWith(expect.objectContaining({ data: expect.anything() }));
     });
 

@@ -18,12 +18,7 @@ export const getPerpMarketsTool = createTool<Params>({
     "Returns all available perpetual markets on Hyperliquid with current prices, funding rates, open interest, 24h volume, max leverage, and asset IDs. Use this to discover tradeable markets and get current prices before opening positions.",
   inputSchema: {
     type: "object",
-    properties: {
-      walletId: {
-        type: "string",
-        description: "Optional wallet ID (defaults to authenticated wallet)",
-      },
-    },
+    properties: {},
     required: [],
   },
   annotations: {

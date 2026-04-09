@@ -84,10 +84,6 @@ export const simulateTransactionTool = createTool<Params>({
         description: "HD wallet derivation index for address lookup. Defaults to 0.",
         minimum: 0,
       },
-      walletId: {
-        type: "string",
-        description: "Override the wallet ID (defaults to the authenticated wallet).",
-      },
     },
     required: ["chainId", "type", "params"],
   },

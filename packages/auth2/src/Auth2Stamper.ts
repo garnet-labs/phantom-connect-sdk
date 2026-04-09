@@ -27,13 +27,10 @@ export class Auth2Stamper implements Auth2StamperWithKeyManagement {
 
   private refreshingTokensPromise: Promise<boolean> | null = null;
 
-  // Because TOKEN_REFRESH_BUFFER_MS proactively handles refresh, we can safely use void here
-  // and return the existing cached values immediately.
   get bearerToken(): string | null {
     if (!this._idType || !this._accessToken) {
       return null;
     }
-    void this.maybeRefreshTokens();
     return `${this._idType} ${this._accessToken}`;
   }
 
@@ -41,7 +38,6 @@ export class Auth2Stamper implements Auth2StamperWithKeyManagement {
     if (!this._accessToken) {
       return null;
     }
-    void this.maybeRefreshTokens();
     return Auth2Token.fromAccessToken(this._accessToken);
   }
 
@@ -170,7 +166,13 @@ export class Auth2Stamper implements Auth2StamperWithKeyManagement {
     return this.refreshingTokensPromise;
   }
   async stamp(params: { data: Buffer; type?: "PKI" } | { data: Buffer; type: "OIDC" }): Promise<string> {
-    if (!this._keyPair || !this._keyInfo || !this.auth2Token) {
+    if (!this._keyPair || !this._keyInfo) {
+      throw new Error("Auth2Stamper not initialized. Call init() first.");
+    }
+
+    await this.maybeRefreshTokens();
+
+    if (!this.auth2Token) {
       throw new Error("Auth2Stamper not initialized. Call init() first.");
     }
 

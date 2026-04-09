@@ -35,10 +35,6 @@ export const buyTokenTool: ToolHandler = {
   inputSchema: {
     type: "object",
     properties: {
-      walletId: {
-        type: "string",
-        description: "Optional wallet ID (defaults to authenticated wallet)",
-      },
       sellChainId: {
         type: "string",
         description:

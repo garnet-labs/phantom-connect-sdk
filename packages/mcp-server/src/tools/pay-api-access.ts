@@ -25,10 +25,6 @@ export const payApiAccessTool: ToolHandler = {
         type: "string",
         description: "Base64-encoded unsigned Solana transaction from the API_PAYMENT_REQUIRED error response",
       },
-      walletId: {
-        type: "string",
-        description: "Optional wallet ID (defaults to authenticated wallet)",
-      },
       derivationIndex: {
         type: "number",
         description: "Optional derivation index (default: 0)",

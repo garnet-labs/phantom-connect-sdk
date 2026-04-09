@@ -43,6 +43,8 @@ export class Auth2KmsRpcClient {
     const axiosInstance = axios.create();
 
     axiosInstance.interceptors.request.use(async config => {
+      await this.stamper.maybeRefreshTokens();
+
       config.headers = config.headers || {};
       config.headers["x-app-id"] = options.appId;
       config.headers["x-api-version"] = DEFAULT_KMS_API_VERSION;

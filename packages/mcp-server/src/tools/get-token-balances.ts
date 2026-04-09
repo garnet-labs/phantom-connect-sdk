@@ -14,6 +14,7 @@ export const getTokenBalancesTool: ToolHandler = {
     "Use the `networks` parameter to filter by chain — omit it to fetch all chains at once. " +
     'Examples: pass ["base"] when user asks about Base tokens; ["solana"] for Solana only; omit for all. ' +
     "Use this to check if the user has enough funds before a transfer or swap. " +
+    "This does not include Hyperliquid perpetuals account balances; if the user asks for Hyperliquid/perps funds or total exposure, also call get_perp_account. " +
     "Response: {items: [{name, symbol, decimals, caip19, totalQuantity, totalQuantityString, spamStatus, logoUri, " +
     "price?: {price, priceChange24h}, queriedWalletBalances: [{address, quantity, quantityString}]}]}. " +
     "Key fields: totalQuantity = human-readable balance (e.g. 1.5 for 1.5 SOL), " +

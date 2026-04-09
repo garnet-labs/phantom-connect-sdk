@@ -30,6 +30,8 @@ describe("close_perp_position", () => {
 
   it("calls closePosition with market and no sizePercent by default", async () => {
     await closePerpPositionTool.handler({ market: "BTC" }, makeContext() as any);
+    const { createPerpsClient } = jest.requireMock("../utils/perps.js");
+    expect(createPerpsClient).toHaveBeenCalledWith(expect.anything(), "wallet-1", undefined);
     expect(mockPerpsClient.closePosition).toHaveBeenCalledWith({ market: "BTC", sizePercent: undefined });
   });
 

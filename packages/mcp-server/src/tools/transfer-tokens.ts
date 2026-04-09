@@ -18,7 +18,7 @@ import {
 import type { ToolHandler, ToolContext } from "./types.js";
 import { normalizeNetworkId, normalizeSwapperChainId } from "../utils/network.js";
 import { getSolanaAddress } from "../utils/solana.js";
-import { getEthereumAddress, estimateGas, fetchGasPrice, assertEvmAddress } from "../utils/evm.js";
+import { getEthereumAddress, estimateGas, fetchGasPrice, fetchNonce, assertEvmAddress } from "../utils/evm.js";
 import { resolveSolanaRpcUrl, resolveEvmRpcUrl } from "../utils/rpc.js";
 import { parseBaseUnitAmount, parseUiAmount, requirePositiveAmount } from "../utils/amount.js";
 import { parseOptionalNonNegativeInteger } from "../utils/params.js";
@@ -56,10 +56,6 @@ export const transferTokensTool: ToolHandler = {
   inputSchema: {
     type: "object",
     properties: {
-      walletId: {
-        type: "string",
-        description: "Optional wallet ID to use for transfer (defaults to authenticated wallet)",
-      },
       networkId: {
         type: "string",
         description:
@@ -233,11 +229,14 @@ export const transferTokensTool: ToolHandler = {
           return { status: "pending_confirmation", simulation };
         }
 
-        const gas = await estimateGas(rpcUrl, { from, to: txTo, value, ...(data ? { data } : {}) });
+        const [gas, gasPrice, nonce] = await Promise.all([
+          estimateGas(rpcUrl, { from, to: txTo, value, ...(data ? { data } : {}) }),
+          fetchGasPrice(rpcUrl),
+          fetchNonce(rpcUrl, from),
+        ]);
         baseTx.gas = gas;
-
-        const gasPrice = await fetchGasPrice(rpcUrl);
         baseTx.gasPrice = gasPrice;
+        baseTx.nonce = nonce;
 
         const { parsed: rlpHex } = await parseToKmsTransaction(baseTx, normalizedNetworkId as NetworkId);
         if (!rlpHex) throw new Error("Failed to RLP-encode EVM transaction");

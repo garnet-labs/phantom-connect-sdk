@@ -337,6 +337,22 @@ describe("Auth2Stamper", () => {
   });
 
   describe("stamp()", () => {
+    it("awaits maybeRefreshTokens() before building the OIDC stamp", async () => {
+      const storage = makeStorage();
+      const stamper = new Auth2Stamper(storage);
+
+      await stamper.init();
+
+      storage.load.mockResolvedValueOnce({ keyPair: mockKeyPair, keyInfo: stamper.getKeyInfo()! });
+      await stamper.setTokens({ accessToken: "my-access-token", idType: "Bearer" });
+
+      const maybeRefreshSpy = jest.spyOn(stamper, "maybeRefreshTokens").mockResolvedValue(false);
+
+      await stamper.stamp({ type: "OIDC", data: Buffer.from("payload") });
+
+      expect(maybeRefreshSpy).toHaveBeenCalled();
+    });
+
     it("throws before init()", async () => {
       const stamper = new Auth2Stamper(makeStorage());
 
@@ -593,19 +609,8 @@ describe("Auth2Stamper", () => {
   });
 
   describe("token refresh", () => {
-    it("triggers a background refresh when the token is near expiry", async () => {
+    it("does not trigger refresh as a side effect of bearerToken access", async () => {
       const mockFetch = globalThis.fetch as jest.Mock;
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            access_token: "new-access",
-            refresh_token: "new-refresh",
-            token_type: "Bearer",
-            expires_in: 3600,
-          }),
-      });
-
       const storage = makeStorage(STORED_RECORD);
       const stamper = new Auth2Stamper(storage, {
         authApiBaseUrl: "https://auth.example.com",
@@ -614,84 +619,28 @@ describe("Auth2Stamper", () => {
       });
 
       await stamper.init();
-
-      // Force the token to be near expiry.
       (stamper as any)._tokenExpiresAt = Date.now() - 1000;
       (stamper as any)._refreshToken = "stored-refresh-token";
 
-      // Access bearerToken to fire the background refresh.
-      stamper.bearerToken;
-
-      // Flush microtasks so the background refresh completes.
-      await new Promise(resolve => setTimeout(resolve, 0));
-
-      expect(mockFetch).toHaveBeenCalledWith(
-        "https://auth.example.com/oauth2/token",
-        expect.objectContaining({ method: "POST" }),
-      );
-      expect(stamper.bearerToken).toBe("Bearer new-access");
-    });
-
-    it("does not refresh when no refreshConfig is provided", async () => {
-      const mockFetch = globalThis.fetch as jest.Mock;
-
-      const storage = makeStorage(STORED_RECORD);
-      const stamper = new Auth2Stamper(storage);
-
-      await stamper.init();
-
-      (stamper as any)._tokenExpiresAt = Date.now() - 1000;
-
-      // Access bearerToken to fire the background refresh.
-      stamper.bearerToken;
-
-      // Flush microtasks so the background refresh completes.
-      await new Promise(resolve => setTimeout(resolve, 0));
-
+      expect(stamper.bearerToken).toBe("Bearer stored-access-token");
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
-    it("does not fire a second refresh while one is already in flight", async () => {
+    it("does not trigger refresh as a side effect of auth2Token access", async () => {
       const mockFetch = globalThis.fetch as jest.Mock;
-      // Slow refresh that we can control.
-      let resolveRefresh!: () => void;
-      mockFetch.mockReturnValueOnce(
-        new Promise(resolve => {
-          resolveRefresh = () =>
-            resolve({
-              ok: true,
-              json: () =>
-                Promise.resolve({
-                  access_token: "new",
-                  refresh_token: "new-r",
-                  token_type: "Bearer",
-                  expires_in: 3600,
-                }),
-            });
-        }),
-      );
-
       const storage = makeStorage(STORED_RECORD);
       const stamper = new Auth2Stamper(storage, {
         authApiBaseUrl: "https://auth.example.com",
-        clientId: "c",
-        redirectUri: "https://app.example.com/cb",
+        clientId: "client-1",
+        redirectUri: "https://app.example.com/callback",
       });
 
       await stamper.init();
-
       (stamper as any)._tokenExpiresAt = Date.now() - 1000;
-      (stamper as any)._refreshToken = "r";
+      (stamper as any)._refreshToken = "stored-refresh-token";
 
-      // Trigger two concurrent getter accesses.
-      stamper.bearerToken;
-      stamper.bearerToken;
-
-      resolveRefresh();
-      await new Promise(resolve => setTimeout(resolve, 0));
-
-      // fetch should only have been called once despite two accesses.
-      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(stamper.auth2Token?.sub).toBe("default-user");
+      expect(mockFetch).not.toHaveBeenCalled();
     });
   });
 });

@@ -51,10 +51,6 @@ export const signEvmTypedDataTool: ToolHandler = {
         description:
           "EVM chain ID (e.g. 1 for Ethereum mainnet, 8453 for Base, 137 for Polygon, 42161 for Arbitrum, 143 for Monad). Matches the chainId field from DeFi aggregators.",
       },
-      walletId: {
-        type: "string",
-        description: "Optional wallet ID to use for signing (defaults to authenticated wallet)",
-      },
       derivationIndex: {
         type: "integer",
         description: "Optional derivation index for the account (default: 0)",

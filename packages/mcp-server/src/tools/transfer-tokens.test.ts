@@ -11,6 +11,7 @@ jest.mock("../utils/evm.js", () => ({
   resolveEvmRpcUrl: jest.fn().mockReturnValue("https://rpc.example.com"),
   estimateGas: jest.fn().mockResolvedValue("0x5208"),
   fetchGasPrice: jest.fn().mockResolvedValue("0x4A817C800"),
+  fetchNonce: jest.fn().mockResolvedValue("0x7"),
   assertEvmAddress: jest.fn(),
 }));
 
@@ -209,6 +210,28 @@ describe("transfer_tokens — EVM native", () => {
     );
     const baseTx = parseToKmsTransaction.mock.calls[0][0];
     expect(baseTx.chainId).toBe(8453);
+  });
+
+  it("fetches and includes nonce in the transaction", async () => {
+    const { parseToKmsTransaction } = jest.requireMock("@phantom/parsers");
+    const { fetchNonce } = jest.requireMock("../utils/evm.js");
+    const ctx = makeContext();
+    await transferTokensTool.handler(
+      {
+        networkId: "eip155:1",
+        to: "0x742d35Cc6634C0532925a3b8D4C8db86fB5C4A7E",
+        amount: "1000000000000000000",
+        amountUnit: "base",
+        confirmed: true,
+      },
+      ctx as any,
+    );
+    expect(fetchNonce).toHaveBeenCalledWith(
+      expect.stringContaining("ethereum"),
+      "0xabcdef1234567890abcdef1234567890abcdef12",
+    );
+    const baseTx = parseToKmsTransaction.mock.calls[0][0];
+    expect(baseTx.nonce).toBe("0x7");
   });
 });
 

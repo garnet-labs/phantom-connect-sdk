@@ -40,10 +40,6 @@ export const getTokenAllowanceTool: ToolHandler = {
         type: "string",
         description: "Address of the token owner. If omitted, the authenticated wallet address for the chain is used.",
       },
-      walletId: {
-        type: "string",
-        description: "Optional wallet ID (defaults to authenticated wallet). Only used when ownerAddress is omitted.",
-      },
       derivationIndex: {
         type: "number",
         description:

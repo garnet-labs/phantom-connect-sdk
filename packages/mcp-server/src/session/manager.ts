@@ -252,9 +252,16 @@ export class SessionManager {
    */
   tryRefreshSession(): Promise<boolean> {
     if (this.session?.authFlow !== "device-code" || !this.stamper) {
+      this.logger.info(
+        `tryRefreshSession: skipping refresh (authFlow=${this.session?.authFlow ?? "none"}, hasStamper=${Boolean(this.stamper)})`,
+      );
       return Promise.resolve(false);
     }
-    return this.stamper.maybeRefreshTokens();
+    this.logger.info("tryRefreshSession: attempting stamper token refresh");
+    return this.stamper.maybeRefreshTokens().then(result => {
+      this.logger.info(`tryRefreshSession: refresh ${result ? "succeeded" : "did not run or failed"}`);
+      return result;
+    });
   }
 
   /**
