@@ -676,3 +676,153 @@ export function validateGoReceipt(r, snapshot, capability) {
     tracked_inventory_sha256: metadata.tracked_inventory_sha256,
     recursive_source_complete: false, submodule_contents_present: false, source_materialization_checked: true};
 }
+
+
+// Append to the existing hash-bound helper; never create an untracked runtime helper.
+export const REVIEWED_DIRECTORY_EMPTY_GIT_VERSION = 1;
+const dcAssert = (ok, message) => { if (!ok) throw new Error(`BLOCKED: ${message}`); };
+const dcEqual = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const dcHash = value => crypto.createHash('sha256').update(value).digest('hex');
+const dcRule = Object.freeze({
+  id: 'directory-connector-pr23-empty-git-node25-npm10-v1',
+  repository: 'garnet-labs/directory-connector', repository_id: '1219214388', pr_number: 23,
+  base: '499a21ff15ab6685f176031f0bb02de969091e7f', head: 'eb785521e836e327788e0731dac773e7a771468f',
+  image: {tag: 'node:25-bookworm', digest: 'node@sha256:0efb427ff710f4943bb3f0641bd3e9ef1ac3cec96c526b67a21b43740becab1f', platform: 'linux/amd64'},
+  authority: {
+    'package.json': '0ba2ca85b2973c2b34bf7a06c1939840b89a7b00',
+    '.nvmrc': 'a682cfb975e0e399490230af930b378b3125f137',
+    '.npmrc': '860dc500f0deaed8939cfec299e5f0303a867a9f',
+    '.github/workflows/test.yml': '5fd2168d2f15bd3f9098f5f43ad5f3b9f52f1e45',
+    'native/package.json': '70103484e61d5cd740c5ebf40d564e0259ca6ca3',
+  },
+  locks: {
+    '499a21ff15ab6685f176031f0bb02de969091e7f': 'ce3555226da4d2eff6d5a137c73a9a84cc54cfa0',
+    'eb785521e836e327788e0731dac773e7a771468f': '1ca9203c5507141c4bc68c852a1a592e3f7f7adc',
+  },
+  inventories: {
+    '499a21ff15ab6685f176031f0bb02de969091e7f': '7fa010a57e092bbc193a77146aa47439bba8d4246f78f4c931a9e4aa9e42ae4d',
+    'eb785521e836e327788e0731dac773e7a771468f': '7b0461fb0f9569ac9e94d70f6703e6b22b75e6d20cc9bda05003cc1a8ee48d67',
+  },
+  scope: 'reviewed-npm-ci-with-lifecycle-hooks-and-synthetic-empty-git',
+  note: 'Dependency install with existing lifecycle hooks only. Synthetic empty Git metadata is created inside the credential-free container; original host .git is excluded. This is not full-Git or native-CI fidelity: no commits, origin, native-module build, typechecking, tests, app build or packaging is supplied or claimed.',
+});
+function directoryCase(snapshot) {
+  if (snapshot?.repository !== dcRule.repository) return null;
+  dcAssert(snapshot.repository_id === dcRule.repository_id && snapshot.pr_number === dcRule.pr_number &&
+    snapshot.baseline_sha === dcRule.base && snapshot.base?.sha === dcRule.base && snapshot.head?.sha === dcRule.head &&
+    snapshot.base.repository === dcRule.repository && snapshot.head.repository === dcRule.repository &&
+    snapshot.base.repository_id === dcRule.repository_id && snapshot.head.repository_id === dcRule.repository_id &&
+    dcEqual(snapshot.manifests, ['package-lock.json']) && dcEqual(snapshot.changed_files, ['package-lock.json']),
+  'empty-Git exception requires reviewed repository ID, PR, exact source pair and sole root npm lock');
+  return dcRule;
+}
+function directoryExpectedTree(snapshot, executedSha) {
+  const rule = directoryCase(snapshot);
+  if (!rule) return null;
+  dcAssert(Object.hasOwn(rule.inventories, executedSha), 'empty-Git executed SHA is outside the reviewed pair');
+  return {scheme: 'git-ls-tree-normalized-v1', executed_sha: executedSha, tracked_entries: 338,
+    tree_manifest_sha256: rule.inventories[executedSha], gitlinks: [], gitmodules: []};
+}
+export function reviewedDirectoryTreeProof({snapshot, executed_sha, raw}) {
+  const expected = directoryExpectedTree(snapshot, executed_sha);
+  if (!expected) return null;
+  dcAssert(typeof raw === 'string' && raw.endsWith('\0'), 'complete NUL-delimited tracked inventory required');
+  const seen = new Set();
+  const entries = raw.slice(0, -1).split('\0').map(line => {
+    const m = /^([0-7]{6}) (blob|commit) ([a-f0-9]{40})\t([\s\S]+)$/.exec(line);
+    dcAssert(m, 'malformed tracked inventory');
+    const [, mode, type, sha, path] = m;
+    dcAssert(!seen.has(path) && !path.startsWith('/') && !path.split('/').some(x => ['', '.', '..', '.git'].includes(x)),
+      'duplicate or unsafe tracked path');
+    seen.add(path);
+    dcAssert(type === 'blob' && ['100644', '100755', '120000'].includes(mode),
+      'gitlinks/submodules are forbidden for the empty-Git policy');
+    dcAssert(!path.split('/').includes('.gitmodules'), 'tracked .gitmodules is forbidden for the empty-Git policy');
+    return {mode, type, sha, path};
+  }).sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  dcAssert(entries.length === expected.tracked_entries && dcHash(JSON.stringify(entries)) === expected.tree_manifest_sha256,
+    'complete tracked inventory does not match the reviewed immutable source revision');
+  return expected;
+}
+export function reviewedDirectoryImage(snapshot, kind) {
+  if (kind !== 'node' || !directoryCase(snapshot)) return null;
+  return structuredClone(dcRule.image);
+}
+export function validateReviewedDirectoryImage(snapshot, kind, image) {
+  const expected = reviewedDirectoryImage(snapshot, kind);
+  if (expected) dcAssert(dcEqual(image, expected), 'empty-Git Node25 image requires the reviewed digest/tag/platform');
+}
+function directoryGitGuards() {
+  return [
+    'test -d .git && test ! -L .git',
+    'dc_git_root=$(/usr/bin/git rev-parse --show-toplevel); test "$dc_git_root" = /work',
+    'dc_git_remote=$(/usr/bin/git remote); test -z "$dc_git_remote"',
+    'dc_git_index=$(/usr/bin/git ls-files); test -z "$dc_git_index"',
+    'test -d .git/objects && test ! -L .git/objects; dc_git_objects=$(/usr/bin/find .git/objects ! -type d -print -quit); test -z "$dc_git_objects"',
+    'if /usr/bin/git show-ref --head >/dev/null 2>&1; then exit 78; else test "$?" -eq 1; fi',
+    'if /usr/bin/git config --local --name-only --get-regexp "^(remote[.]|credential[.]|include[.]|includeif[.])" >/dev/null; then exit 78; else test "$?" -eq 1; fi',
+  ];
+}
+function directoryCommands() {
+  return [
+    'dc_source_before=$(/usr/bin/sha256sum package-lock.json package.json .nvmrc .npmrc); readonly dc_source_before',
+    'test "$(/usr/local/bin/node --version)" = v25.9.0',
+    'export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0',
+    'npm install --global --prefix /home/workload/npm npm@10.9.8',
+    'export PATH="/home/workload/npm/bin:$PATH"',
+    'test "$(npm --version)" = 10.9.8',
+    'test ! -e .git && test ! -L .git && test ! -e .gitmodules && test ! -L .gitmodules',
+    'git -c init.templateDir= init',
+    ...directoryGitGuards(),
+    'npm ci --no-audit --no-fund',
+    ...directoryGitGuards(),
+    'test ! -e .gitmodules && test ! -L .gitmodules',
+    'test "$dc_source_before" = "$(/usr/bin/sha256sum package-lock.json package.json .nvmrc .npmrc)"',
+  ];
+}
+export function reviewedDirectoryContract(snapshot, executedSha) {
+  const source_tree = directoryExpectedTree(snapshot, executedSha);
+  if (!source_tree) return null;
+  return {version: REVIEWED_DIRECTORY_EMPTY_GIT_VERSION, policy_id: dcRule.id,
+    repository: dcRule.repository, repository_id: dcRule.repository_id, pr_number: dcRule.pr_number,
+    baseline_sha: dcRule.base, head_sha: dcRule.head, executed_sha: executedSha,
+    authority_blobs: {...dcRule.authority, 'package-lock.json': dcRule.locks[executedSha]}, source_tree,
+    image: structuredClone(dcRule.image), node_version: '25.9.0', npm_version: '10.9.8',
+    node_authority: '.nvmrc v25 and engines.node ~25; verified official image supplies exact 25.9.0',
+    npm_authority: 'engines.npm ~10; 10.9.8 is an existing official compatible release, not a native CI exact pin',
+    synthetic_git_metadata: true, creation_location: 'credential-free-nonroot-workload-container:/work/.git',
+    host_git_metadata_copied: false, source_commits_imported: false, remotes: [], index_entries: [],
+    initial_templates: 'empty', system_and_global_git_config: 'disabled',
+    lifecycle_scripts: 'unchanged-and-enabled', husky: 'unchanged-and-enabled; may set local core.hooksPath normally',
+    source_lock_and_manifest_bytes_unchanged_on_success: true,
+    full_git_fidelity: false, native_ci_fidelity: false, scope_limit: dcRule.note};
+}
+export function planReviewedDirectory({root, file, kind, context, read, blob}) {
+  if (kind !== 'node' || !directoryCase(context?.snapshot)) return null;
+  dcAssert(file === 'package-lock.json', 'empty-Git plan requires sole root npm lock');
+  const contract = reviewedDirectoryContract(context.snapshot, context.executed_sha);
+  dcAssert(dcEqual(context.directory_tree_proof, contract.source_tree), 'verified complete no-submodule tree proof is missing');
+  for (const [name, hash] of Object.entries(contract.authority_blobs))
+    dcAssert(blob(read(root, name)) === hash, 'empty-Git authority or side-specific immutable source lock changed');
+  for (const name of ['.gitmodules', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lock', 'bun.lockb'])
+    dcAssert(read(root, name, true) === null, 'empty-Git plan found an unreviewed submodule config or competing lock');
+  return {directory: '.', commands: directoryCommands(), locked: true, scope: dcRule.scope,
+    note: dcRule.note, synthetic_git_policy: contract};
+}
+export function validateReviewedDirectoryWorkloads(receipt, snapshot, images) {
+  const rule = directoryCase(snapshot);
+  if (!rule) {
+    dcAssert(receipt.workloads.every(w => w.synthetic_git_policy === undefined), 'unreviewed workload asserted synthetic Git policy');
+    return [];
+  }
+  const expected = reviewedDirectoryContract(snapshot, receipt.executed_sha);
+  dcAssert(receipt.workloads.length === 1, 'empty-Git policy requires exactly one workload');
+  const [w] = receipt.workloads;
+  dcAssert(w.id === 'node:.:' && w.ecosystem === 'node' && w.directory === '.' &&
+    w.locked === true && w.scope === dcRule.scope && w.note === dcRule.note &&
+    dcEqual(w.changed_manifests, ['package-lock.json']) && dcEqual(w.commands, directoryCommands()) &&
+    dcEqual(w.synthetic_git_policy, expected), 'empty-Git metadata or exact guarded commands mismatch');
+  validateReviewedDirectoryImage(snapshot, 'node', images.node);
+  dcAssert(dcEqual(receipt.images, images) && dcEqual(w.image, images.node), 'empty-Git receipt image mismatch');
+  return [{workload_id: w.id, ...expected}];
+}

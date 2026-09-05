@@ -14,11 +14,18 @@ import {planAdditionalLockfile, planBunLockfile, reviewedImageTag, assertNoUnsel
   auditMaterialization, auditPreparedGoCopy, expectedGoPlan, validateGoReceipt,
   parseGoGitTree} from './garnet-additional-lockfiles.mjs';
 
+import {planReviewedDirectory, reviewedDirectoryImage, validateReviewedDirectoryImage,
+  reviewedDirectoryTreeProof, validateReviewedDirectoryWorkloads} from './garnet-additional-lockfiles.mjs';
+export const REVIEWED_DIRECTORY_POLICIES_VERSION = 1;
+
 export const POLICY = 'garnet-dependabot-container-v2';
 // Additive capability marker for the independent publisher. Legacy v2 code
 // without this marker must retain its own historical validation contract.
 export const REVIEWED_EXCEPTIONS_VERSION = 2;
 export const REVIEWED_PYTHON_POLICIES_VERSION = 1;
+export const REVIEWED_STORAGE_POLICIES_VERSION = 1;
+// C1: capture validity is separate from scope-equivalent comparison validity.
+export const RECORDING_RESULT_CONTRACT_VERSION = 1;
 export const ACTION = 'e546567a72e4fede11ec39d6e9f75b539adef22c';
 export const SENSOR = 'v2.16.0';
 // These bounds are ALREADY deployed in the audited failed sensor runs; they
@@ -340,7 +347,8 @@ export function planWorkloads(root, changed, context) {
     const reviewed = reviewedNodePlan(root, file, kind, context);
     const bun = reviewed ? null : planBunLockfile({root, file, kind, read: readSource});
     const python = planReviewedPythonRuntime({root, file, kind, context, read: readSource, blob: gitBlob});
-    const additional = reviewed ?? bun ?? python ?? planAdditionalLockfile({root, file, kind, read: readSource});
+    const directoryGit = planReviewedDirectory({root, file, kind, context, read: readSource, blob: gitBlob});
+    const additional = reviewed ?? bun ?? python ?? directoryGit ?? planAdditionalLockfile({root, file, kind, read: readSource});
     if (additional) {
       dir = additional.directory;
       commands.push(...additional.commands);
@@ -454,7 +462,8 @@ export function planWorkloads(root, changed, context) {
     if (plans.has(key)) plans.get(key).changed_manifests.push(file);
     else plans.set(key, {id: key, ecosystem: kind, directory: dir, commands, scope, locked, note, changed_manifests: [file],
       ...(reviewed ? {manager_selection: reviewed.manager_selection} : {}),
-      ...(python ? {python_runtime_policy: python.python_runtime_policy} : {})});
+      ...(python ? {python_runtime_policy: python.python_runtime_policy} : {}),
+      ...(directoryGit ? {synthetic_git_policy: directoryGit.synthetic_git_policy} : {})});
   }
   assert(plans.size > 0 && plans.size <= 12, 'BLOCKED: workload count outside pilot bounds');
   return [...plans.values()].sort((a, b) => a.id.localeCompare(b.id));
@@ -475,7 +484,8 @@ const artifactName = (s, side) => `garnet-record-${s.run_id}-${s.run_attempt}-${
 
 export function validateImages(images, snapshot) {
   for (const kind of new Set(snapshot.manifests.map(ecosystem).filter(Boolean))) {
-    const selectedTag = reviewedPythonRuntimeImage(snapshot, kind)?.tag ?? reviewedImageTag(snapshot, kind, IMAGE_TAGS[kind]);
+    const selectedTag = reviewedDirectoryImage(snapshot, kind)?.tag ?? reviewedPythonRuntimeImage(snapshot, kind)?.tag ?? reviewedImageTag(snapshot, kind, IMAGE_TAGS[kind]);
+    validateReviewedDirectoryImage(snapshot, kind, images?.[kind]);
     validateReviewedPythonImage(snapshot, kind, images?.[kind]);
     assert(DIGEST.test(images?.[kind]?.digest) && images[kind].tag === selectedTag,
       'Missing or invalid immutable image');
@@ -491,7 +501,7 @@ async function resolveImages() {
   const limits = finalizationLimits(s); // reject mismatched opt-in BEFORE image pull
   const images = {};
   for (const kind of new Set(s.manifests.map(ecosystem).filter(Boolean))) {
-    const reviewedPython = reviewedPythonRuntimeImage(s, kind);
+    const reviewedPython = reviewedDirectoryImage(s, kind) ?? reviewedPythonRuntimeImage(s, kind);
     const tag = reviewedPython?.tag ?? reviewedImageTag(s, kind, IMAGE_TAGS[kind]);
     const reference = reviewedPython?.digest ?? tag;
     run('docker', ['pull', '--platform', 'linux/amd64', reference], {timeout: 600000});
@@ -630,6 +640,8 @@ async function prepare() {
   assert(actual === r.expected_sha, 'Checkout does not match expected immutable SHA');
   const tree = run('git', ['-C', source, 'ls-tree', '-rz', 'HEAD']);
   const context = {snapshot: s, executed_sha: actual};
+  const directoryTree = reviewedDirectoryTreeProof({snapshot: s, executed_sha: actual, raw: tree});
+  if (directoryTree) context.directory_tree_proof = directoryTree;
   const go = expectedGoMaterialization(context);
   if (go) {
     const inventory = parseGoGitTree(tree);
@@ -699,7 +711,175 @@ async function restrictNetwork(state) {
   saveState(state);
 }
 
-export function containerArgs({name, network, copy, plan, marker}) {
+// Isolated proposal: one exact-pair disk-home experiment, never runner HOME.
+export function gradioStoragePolicy(s, executedSha) {
+  if (s?.repository !== 'garnet-labs/gradio-test' || s.pr_number !== 4 ||
+    !Array.isArray(s.manifests) || !s.manifests.includes('test/requirements.txt')) return null;
+  const base = '55041996db69b086ee2a5116ad3db40bced6b056';
+  const head = '36f97efa0200792ebc2b1fea5f32f2cd28efc5eb';
+  assert(s.repository_id === '899240340' && s.pr_number === 4 &&
+    s.baseline_sha === base && s.pr_base_tip === base && s.base?.sha === base && s.head?.sha === head &&
+    [s.base, s.head].every(x => x.repository === s.repository && x.repository_id === s.repository_id) &&
+    s.comparison_scope === 'merge-base-to-head' && s.event === 'workflow_dispatch' && s.run_attempt === '1' &&
+    equalData(s.manifests, ['test/requirements.txt']) && equalData(s.changed_files, s.manifests) &&
+    [base, head].includes(executedSha), 'Unreviewed Gradio storage pair, identity or attempt');
+  return {version: 1, policy_id: 'gradio-pr4-private-disk-home-v1',
+    repository: s.repository, repository_id: s.repository_id, pr_number: 4,
+    baseline_sha: base, head_sha: head, executed_sha: executedSha,
+    requirements_blob: executedSha === base ? 'ff75a5c4be16f7cb948ae5585d38b691820f4834' : '29a22d53b4766c091e56bb0970e6c72b11f82257',
+    home: '/home/workload', tmpdir: '/home/workload/tmp',
+    home_backing: 'fresh-private-runner-temp-disk-directory',
+    initial_home_contents: ['tmp'], uid: 10001, gid: 10001, mode: 0o700,
+    tmpfs_tmp_bytes: 2 * 1024 ** 3, minimum_disk_available_bytes: 16 * 1024 ** 3,
+    minimum_disk_available_inodes: 65536, minimum_tmp_available_bytes: 1024 ** 3,
+    permitted_disk_types: ['ext2/ext3', 'ext4', 'xfs', 'btrfs'],
+    preflight: 'trusted-image-python-isolated-mode-no-source-execution-network-none',
+    memory_bytes: 5 * 1024 ** 3, cpus: 2, workload_timeout_seconds: 900, job_minutes: 45,
+    dependency_command_unchanged: true, admission_is_peak_usage_guarantee: false};
+}
+export const GRADIO_STORAGE_PROBE = [
+  'import os,json,subprocess',
+  "paths=['/home/workload','/tmp','/work']",
+  "rows=[]",
+  "for p in paths:",
+  " s=os.statvfs(p); rows.append(dict(path=p,device=os.stat(p).st_dev,block_bytes=s.f_frsize,blocks=s.f_blocks,free_blocks=s.f_bfree,available_blocks=s.f_bavail,inodes=s.f_files,free_inodes=s.f_ffree,available_inodes=s.f_favail))",
+  "df=subprocess.run(['/bin/df','-P','-T','-B1','--',*paths],check=True,capture_output=True,text=True,timeout=5).stdout",
+  "print(json.dumps(dict(schema=1,phase='before-untrusted-workload',paths=rows,df=df)))",
+].join('\n');
+const storageDiskMagic = {61267: ['ext2/ext3', 'ext4'], 1481003842: ['xfs'], 2435016766: ['btrfs']};
+function diskStat(location) {
+  const s = fs.statfsSync(location);
+  return {type: s.type, block_bytes: s.bsize, blocks: s.blocks, free_blocks: s.bfree,
+    available_blocks: s.bavail, inodes: s.files, free_inodes: s.ffree};
+}
+export function validateGradioStorageObservation(o, policy) {
+  const exact = (value, keys) => assert(value && equalData(Object.keys(value).sort(), [...keys].sort()), 'Storage observation shape mismatch');
+  exact(o, ['schema','created_empty','tmp_created_empty','host_uid','host_gid','host_mode','host_home','host_work','docker_mounts_checked','observed_at','initial']);
+  assert(o.schema === 1 && o.created_empty === true && o.tmp_created_empty === true &&
+    o.host_uid === 10001 && o.host_gid === 10001 && o.host_mode === 0o700 && o.docker_mounts_checked === true &&
+    typeof o.observed_at === 'string' && Number.isFinite(Date.parse(o.observed_at)),
+  'Storage directory creation/ownership/mount evidence missing');
+  const numeric = (value, keys) => {
+    for (const key of keys) assert(Number.isSafeInteger(value[key]) && value[key] >= 0, 'Invalid storage measurement');
+    assert(value.block_bytes > 0 && value.available_blocks <= value.free_blocks && value.free_blocks <= value.blocks &&
+      value.free_inodes <= value.inodes, 'Inconsistent storage capacity');
+  };
+  for (const h of [o.host_home, o.host_work]) {
+    exact(h, ['type','block_bytes','blocks','free_blocks','available_blocks','inodes','free_inodes']);
+    numeric(h, ['type','block_bytes','blocks','free_blocks','available_blocks','inodes','free_inodes']);
+    assert(storageDiskMagic[h.type] && Number.isSafeInteger(h.available_blocks * h.block_bytes) &&
+      h.available_blocks * h.block_bytes >= policy.minimum_disk_available_bytes &&
+      h.free_inodes >= policy.minimum_disk_available_inodes, 'Insufficient or non-disk host storage');
+  }
+  exact(o.initial, ['schema','phase','paths','df']);
+  assert(o.initial.schema === 1 && o.initial.phase === 'before-untrusted-workload' &&
+    Array.isArray(o.initial.paths) && equalData(o.initial.paths.map(x => x.path), ['/home/workload','/tmp','/work']) &&
+    typeof o.initial.df === 'string' && o.initial.df.length < 4096, 'Storage probe evidence missing');
+  const df = o.initial.df.trim().split('\n');
+  assert(df.length === 4 && df[0].startsWith('Filesystem'), 'Invalid initial df output');
+  for (let i=0;i<3;i++) {
+    const row = o.initial.paths[i];
+    exact(row, ['path','device','block_bytes','blocks','free_blocks','available_blocks','inodes','free_inodes','available_inodes']);
+    numeric(row, ['device','block_bytes','blocks','free_blocks','available_blocks','inodes','free_inodes','available_inodes']);
+    assert(row.available_inodes <= row.free_inodes, 'Invalid available inode count');
+    const m = /^(\S+)\s+(\S+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)%\s+(\S+)$/.exec(df[i+1]);
+    assert(m && m[7] === row.path && Number(m[3]) === row.blocks * row.block_bytes &&
+      Number.isSafeInteger(Number(m[3])) && Number(m[4]) <= Number(m[3]) && Number(m[5]) <= Number(m[3]),
+    'Initial df/statvfs capacity mismatch');
+    if (i === 1) {
+      assert(m[2] === 'tmpfs' && Number(m[3]) === policy.tmpfs_tmp_bytes &&
+        Number(m[5]) >= policy.minimum_tmp_available_bytes &&
+        row.available_blocks * row.block_bytes >= policy.minimum_tmp_available_bytes, 'Unexpected /tmp backing or capacity');
+    } else {
+      const host = i === 0 ? o.host_home : o.host_work;
+      assert(storageDiskMagic[host.type].includes(m[2]) &&
+        Number(m[3]) === host.blocks * host.block_bytes &&
+        Number(m[5]) >= policy.minimum_disk_available_bytes &&
+        row.available_blocks * row.block_bytes >= policy.minimum_disk_available_bytes &&
+        row.available_inodes >= policy.minimum_disk_available_inodes, 'Insufficient or unproven disk-backed container mount');
+    }
+  }
+  return o;
+}
+export function validateGradioStorageReceipt(r, s) {
+  const expected = gradioStoragePolicy(s, r.executed_sha);
+  if (!expected) {
+    assert(r.workloads.every(w => !Object.hasOwn(w, 'storage_policy') && !Object.hasOwn(w, 'storage_observation')),
+      'Unbound storage metadata');
+    return [];
+  }
+  assert(r.workloads.length === 1, 'Gradio storage workload count mismatch');
+  const [w] = r.workloads;
+  assert(w.id === 'python:test:requirements.txt' && w.ecosystem === 'python' && w.directory === 'test' &&
+    w.scope === 'requirements-install' && w.locked === false &&
+    equalData(w.commands, ["python -m pip install -r 'requirements.txt'"]) &&
+    equalData(w.changed_manifests, ['test/requirements.txt']) &&
+    equalData(w.storage_policy, expected), 'Gradio storage policy/unchanged command mismatch');
+  validateGradioStorageObservation(w.storage_observation, expected);
+  assert(Date.parse(w.storage_observation.observed_at) <= Date.parse(w.started_at),
+    'Storage observation must precede untrusted workload');
+  return [{workload_id: w.id, policy_id: expected.policy_id, executed_sha: r.executed_sha,
+    storage_admission_verified: true, peak_usage_guaranteed: false}];
+}
+export function validatePrivateStorageMounts(inspected, home, copy) {
+  const mounts = inspected.Mounts;
+  assert(Array.isArray(mounts) &&
+    mounts.filter(m => m.Type === 'bind').length === 2 &&
+    mounts.every(m => ['/work','/home/workload'].includes(m.Destination) ||
+      m.Destination === '/tmp' && m.Type === 'tmpfs'), 'Unexpected storage preflight mount');
+  for (const [target, source] of [['/home/workload',home],['/work',copy]]) {
+    const matches = mounts.filter(m => m.Destination === target);
+    assert(matches.length === 1 && matches[0].Type === 'bind' && matches[0].Source === source &&
+      matches[0].RW === true && matches[0].Propagation === 'rprivate', 'Storage bind-source mismatch');
+  }
+  assert(equalData(inspected.HostConfig.Tmpfs, {'/tmp':'rw,nosuid,nodev,exec,size=2g,mode=1777'}),
+    'Unexpected tmpfs storage configuration');
+}
+export async function prepareGradioStorage(state, workload, copy, name, marker) {
+  const policy = gradioStoragePolicy(state.receipt.snapshot, state.receipt.executed_sha);
+  if (!policy) return null;
+  assert(workload.id === 'python:test:requirements.txt' &&
+    equalData(workload.commands, ["python -m pip install -r 'requirements.txt'"]) &&
+    gitBlob(readSource(copy, 'test/requirements.txt')) === policy.requirements_blob, 'Gradio dependency source/command changed');
+  assert(typeof process.env.RUNNER_TEMP === 'string' && path.isAbsolute(process.env.RUNNER_TEMP), 'Missing trusted runner temp');
+  const parent = path.resolve(process.env.RUNNER_TEMP);
+  assert(fs.realpathSync(parent) === parent && /^[A-Za-z0-9_/-]+$/.test(parent) &&
+    parent !== path.resolve(os.homedir()) && parent !== '/', 'Unsafe private-home parent');
+  const home = fs.mkdtempSync(path.join(parent, `garnet-gradio-home-${state.receipt.run_id}-${state.receipt.side}-`));
+  fs.chmodSync(home, 0o700);
+  const createdEmpty = fs.readdirSync(home).length === 0;
+  const tmp = path.join(home, 'tmp'); fs.mkdirSync(tmp, {mode:0o700});
+  const tmpEmpty = fs.readdirSync(tmp).length === 0;
+  sudo('chown', '-h', '10001:10001', home, tmp); // fixed fresh paths; never recursive runner HOME
+  const st = fs.lstatSync(home);
+  assert(st.isDirectory() && !st.isSymbolicLink(), 'Unsafe private-home root');
+  workload.storage_policy = policy;
+  const o = {schema:1,created_empty:createdEmpty,tmp_created_empty:tmpEmpty,
+    host_uid:st.uid,host_gid:st.gid,host_mode:st.mode & 0o777,
+    host_home:diskStat(home),host_work:diskStat(copy),docker_mounts_checked:false,observed_at:null,initial:null};
+  workload.storage_observation = o; saveState(state); // retain failed admission diagnostics
+  const probeName = `${name}-storage`, context = {snapshot:state.receipt.snapshot,executed_sha:state.receipt.executed_sha};
+  const probe = {...workload,commands:[`/usr/local/bin/python3 -I -c ${quote(GRADIO_STORAGE_PROBE)}`]};
+  run('docker', containerArgs({name:probeName,network:'none',copy,plan:probe,marker:`${marker}-storage`,storageHome:home,context}), {timeout:30000});
+  state.containers.push(probeName); saveState(state);
+  validatePrivateStorageMounts(JSON.parse(run('docker',['inspect',probeName],{timeout:10000}))[0],home,copy);
+  o.docker_mounts_checked = true; saveState(state);
+  const started = spawnSync('docker',['start','--attach',probeName],
+    {encoding:'utf8',timeout:30000,maxBuffer:65536,stdio:['ignore','pipe','pipe']});
+  // Preserve bounded diagnostics even if the probe fails; never stream them.
+  fs.appendFileSync(path.join(locations().output,'workload.log'),
+    `\n=== trusted storage preflight (not dependency execution) ===\n${(started.stdout || '').slice(0,65536)}\n${(started.stderr || '').slice(0,65536)}\n`,
+    {mode:0o600});
+  assert(!started.error && started.status === 0, 'Storage preflight failed');
+  const finished = JSON.parse(run('docker',['inspect',probeName],{timeout:10000}))[0].State;
+  assert(finished.Status === 'exited' && finished.ExitCode === 0 && finished.OOMKilled === false,
+    'Storage preflight failed');
+  o.initial = JSON.parse(started.stdout); o.observed_at = now(); saveState(state);
+  validateGradioStorageObservation(o,policy); // insufficient space => no pip; no cleanup/fallback
+  return home;
+}
+
+export function containerArgs({name, network, copy, plan, marker, storageHome, context}) {
   assert(DIGEST.test(plan.image.digest) && /^[a-z0-9-]+$/.test(marker), 'Invalid container provenance');
   const allowEnv = {
     HOME: '/home/workload', CI: 'true', LANG: 'C.UTF-8',
@@ -714,6 +894,14 @@ export function containerArgs({name, network, copy, plan, marker}) {
     CARGO_HOME: '/home/workload/.cargo', RUSTUP_HOME: '/usr/local/rustup', RUSTUP_TOOLCHAIN: 'stable',
   };
   const script = `set -eu\n${plan.commands.join('\n')}\n`;
+  if (storageHome) {
+    const expectedStorage = context && gradioStoragePolicy(context.snapshot, context.executed_sha);
+    assert(expectedStorage && equalData(plan.storage_policy, expectedStorage) &&
+      /^[A-Za-z0-9_/-]+$/.test(storageHome) && path.isAbsolute(storageHome) &&
+      /^garnet-gradio-home-\d+-(base|head)-[A-Za-z0-9]+$/.test(path.basename(storageHome)),
+    'Unbound private disk-home mount');
+    allowEnv.TMPDIR = '/home/workload/tmp';
+  }
   // A uniquely named shell remains in the process ancestry. Only the trusted
   // commands above are interpolated, with manifest-derived arguments quoted.
   const launcher = `cp /bin/bash /tmp/${marker}; /tmp/${marker} -c ${quote(script)}`;
@@ -724,7 +912,8 @@ export function containerArgs({name, network, copy, plan, marker}) {
     '--network', network, '--dns', '1.1.1.1', '--dns', '8.8.8.8',
     '--sysctl', 'net.ipv6.conf.all.disable_ipv6=1',
     '--tmpfs', '/tmp:rw,nosuid,nodev,exec,size=2g,mode=1777',
-    '--tmpfs', '/home/workload:rw,nosuid,nodev,exec,size=4g,uid=10001,gid=10001,mode=0700',
+    ...(storageHome ? ['--mount', `type=bind,source=${storageHome},target=/home/workload,bind-propagation=rprivate`] :
+      ['--tmpfs', '/home/workload:rw,nosuid,nodev,exec,size=4g,uid=10001,gid=10001,mode=0700']),
     '--mount', `type=bind,source=${copy},target=/work,bind-propagation=rprivate`,
     '--workdir', plan.directory === '.' ? '/work' : `/work/${plan.directory}`,
     '--log-driver', 'none',
@@ -752,8 +941,12 @@ async function executeContainer(state, workload, index) {
   // chown never follows source symlinks. The container gets only this copy.
   sudo('chown', '-hR', '10001:10001', copy);
   run('docker', ['pull', '--platform', 'linux/amd64', workload.image.digest], {timeout: 600000});
-  run('docker', containerArgs({name, network: state.network, copy, plan: workload, marker}));
+  const storageHome = await prepareGradioStorage(state, workload, copy, name, marker);
+  const context = {snapshot: state.receipt.snapshot, executed_sha: state.receipt.executed_sha};
+  run('docker', containerArgs({name, network: state.network, copy, plan: workload, marker, storageHome, context}));
   state.containers.push(name);
+  saveState(state);
+  if (storageHome) validatePrivateStorageMounts(JSON.parse(run('docker',['inspect',name],{timeout:10000}))[0], storageHome, copy);
   workload.container = name;
   workload.marker = marker;
   workload.started_at = now();
@@ -1073,7 +1266,9 @@ export function validateReceipt(r, s, side, images, codeHashes = recorderCodeHas
     'No workload evidence');
   validateReviewedExceptions(r, s);
   validateReviewedPythonRuntimeWorkloads(r, s, images);
+  validateReviewedDirectoryWorkloads(r, s, images);
   validateGoReceipt(r, s, REVIEWED_EXCEPTIONS_VERSION);
+  validateGradioStorageReceipt(r, s);
   for (const w of r.workloads) {
     assert(w.exit_code === 0 && w.oom_killed === false && w.output_truncated === false &&
       w.timed_out === false, 'Workload exit failure');
@@ -1092,7 +1287,7 @@ async function verify() {
   const images = validateImages(envJSON('RECORDER_IMAGES'), s);
   const output = path.resolve(process.env.RECORDER_SUMMARY);
   fs.mkdirSync(output, {recursive: true});
-  const summary = {schema: 1, policy: POLICY, snapshot: s, verified: false,
+  const summary = {schema: 1, policy: POLICY, snapshot: s, recording_verified: false, verified: false,
     reviewed_exceptions_version: REVIEWED_EXCEPTIONS_VERSION,
     decision: 'HOLD', meaning: 'Recording verification only; not dependency safety or PR approval',
     cloud_ingestion_verified: false, verified_at: now(), sides: []};
@@ -1124,6 +1319,8 @@ async function verify() {
         recorder_script_sha256: r.recorder_script_sha256, recorder_helpers_sha256: r.recorder_helpers_sha256,
         reviewed_exception_validation: validateReviewedExceptions(r, s),
         reviewed_python_runtime_validation: validateReviewedPythonRuntimeWorkloads(r, s, images),
+        reviewed_storage_validation: validateGradioStorageReceipt(r, s),
+        reviewed_directory_git_validation: validateReviewedDirectoryWorkloads(r, s, images),
         ...(r.source_materialization ? {source_materialization: r.source_materialization,
           go_submodule_validation: validateGoReceipt(r, s, REVIEWED_EXCEPTIONS_VERSION)} : {}),
         ...(r.source_copy_fidelity ? {source_copy_fidelity: r.source_copy_fidelity} : {}),
@@ -1136,7 +1333,8 @@ async function verify() {
     summary.command_policy_diverged = base.workloads.some((w, i) =>
       JSON.stringify(w.commands) !== JSON.stringify(head.workloads[i].commands));
     summary.comparison_scope_equivalent = !summary.command_policy_diverged;
-    summary.verified = true;
+    summary.recording_verified = true;
+    summary.verified = !summary.command_policy_diverged;
     summary.decision = summary.command_policy_diverged ? 'HOLD' : 'RECORDING_VERIFIED';
     if (summary.command_policy_diverged) summary.hold_reason =
       'Both records validated, but command policy differs; do not claim a scope-equivalent dependency comparison';
@@ -1147,7 +1345,7 @@ async function verify() {
   }
   json(path.join(output, 'verification.json'), summary);
   if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
-    `## Garnet Dependabot recording\n\n${summary.verified ? 'Recording verified for both exact source revisions.' : 'HOLD: recording is incomplete or validation failed.'}\n\nThis is not a safety verdict or PR approval. See the verification artifact for exact provenance.\n`);
+    `## Garnet Dependabot recording\n\n${summary.recording_verified ? (summary.command_policy_diverged ? 'Both recordings verified; comparison HOLD because command policies differ.' : 'Recording verified for both exact source revisions.') : 'HOLD: recording is incomplete or validation failed.'}\n\nThis is not a safety verdict or PR approval. See the verification artifact for exact provenance.\n`);
   if (error) throw error;
 }
 
